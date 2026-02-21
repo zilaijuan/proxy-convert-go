@@ -14,6 +14,7 @@ import (
 	"proxy-convert/internal/database"
 	"proxy-convert/internal/extractor"
 	"proxy-convert/internal/parser"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -30,7 +31,7 @@ func NewLinkService(db *database.DB) *LinkService {
 func (s *LinkService) AddLink(link string, status int) (int64, error) {
 	proxy, err := parser.ParseLink(link)
 	if err != nil {
-		log.Printf("解析link失败: %v", err)
+		log.Printf("解析link失败: %v, Link内容: %s", err, link)
 		return s.db.AddLink(link, status, "", "")
 	}
 
@@ -299,7 +300,7 @@ func (s *VerifierService) VerifyLinks() error {
 	for _, link := range links {
 		proxy, err := parser.ParseLink(link.Link)
 		if err != nil {
-			log.Printf("解析link %d 失败: %v", link.ID, err)
+			log.Printf("解析link %d 失败: %v, Link内容: %s", link.ID, err, link.Link)
 			continue
 		}
 
@@ -381,16 +382,45 @@ func (s *VerifierService) VerifyLinks() error {
 
 	log.Println("Testing node delays...")
 	results := make(map[string]int)
-
+	var mu sync.Mutex
+	
+	const workerCount = 10
+	jobs := make(chan string, len(proxyNames))
+	resultsChan := make(chan struct {
+		name  string
+		delay int
+		err   error
+	}, len(proxyNames))
+	
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for proxyName := range jobs {
+				delay, err := s.testNodeDelay(s.externalControllerPort, proxyName, s.testURL, s.timeout)
+				resultsChan <- struct {
+					name  string
+					delay int
+					err   error
+				}{proxyName, delay, err}
+			}
+		}()
+	}
+	
 	for _, proxyName := range proxyNames {
-		delay, err := s.testNodeDelay(s.externalControllerPort, proxyName, s.testURL, s.timeout)
-		if err != nil {
-			log.Printf("Failed to test node %s: %v", proxyName, err)
-			results[proxyName] = -1
+		jobs <- proxyName
+	}
+	close(jobs)
+	
+	for i := 0; i < len(proxyNames); i++ {
+		result := <-resultsChan
+		mu.Lock()
+		if result.err != nil {
+			log.Printf("Failed to test node %s: %v", result.name, result.err)
+			results[result.name] = -1
 		} else {
-			log.Printf("Node %s delay: %dms", proxyName, delay)
-			results[proxyName] = delay
+			log.Printf("Node %s delay: %dms", result.name, result.delay)
+			results[result.name] = result.delay
 		}
+		mu.Unlock()
 	}
 
 	log.Println("Updating link statuses...")
@@ -405,6 +435,7 @@ func (s *VerifierService) VerifyLinks() error {
 	for _, link := range links {
 		proxy, err := parser.ParseLink(link.Link)
 		if err != nil {
+			log.Printf("解析link %d 失败: %v, Link内容: %s", link.ID, err, link.Link)
 			continue
 		}
 
@@ -452,7 +483,20 @@ func (s *ExtractorService) ExtractFromV2rayse() error {
 	existingCount := 0
 
 	for _, link := range links {
-		id, err := s.db.AddLink(link, 0, "", "")
+		proxy, err := parser.ParseLink(link)
+		var fingerprint string
+		var name string
+
+		if err != nil {
+			log.Printf("解析link失败: %v, Link内容: %s", err, link)
+			fingerprint = link
+			name = ""
+		} else {
+			fingerprint = parser.GetNodeFingerprint(proxy)
+			name = proxy.Name
+		}
+
+		id, err := s.db.AddLink(link, 0, fingerprint, name)
 		if err != nil {
 			existingCount++
 		} else {
@@ -473,7 +517,20 @@ func (s *ExtractorService) ExtractFromGitHub() error {
 	existingCount := 0
 
 	for _, link := range links {
-		id, err := s.db.AddLink(link, 0, "", "")
+		proxy, err := parser.ParseLink(link)
+		var fingerprint string
+		var name string
+
+		if err != nil {
+			log.Printf("解析link失败: %v, Link内容: %s", err, link)
+			fingerprint = link
+			name = ""
+		} else {
+			fingerprint = parser.GetNodeFingerprint(proxy)
+			name = proxy.Name
+		}
+
+		id, err := s.db.AddLink(link, 0, fingerprint, name)
 		if err != nil {
 			existingCount++
 		} else {
@@ -507,7 +564,20 @@ func (s *ExtractorService) ImportFromURL(url string) error {
 	existingCount := 0
 
 	for _, link := range links {
-		_, err := s.db.AddLink(link, 0, "", "")
+		proxy, err := parser.ParseLink(link)
+		var fingerprint string
+		var name string
+
+		if err != nil {
+			log.Printf("解析link失败: %v, Link内容: %s", err, link)
+			fingerprint = link
+			name = ""
+		} else {
+			fingerprint = parser.GetNodeFingerprint(proxy)
+			name = proxy.Name
+		}
+
+		_, err = s.db.AddLink(link, 0, fingerprint, name)
 		if err != nil {
 			existingCount++
 		} else {
@@ -576,7 +646,7 @@ func (s *ClashService) BuildClash(statuses []int) (map[string]interface{}, error
 	for _, link := range links {
 		proxy, err := parser.ParseLink(link.Link)
 		if err != nil {
-			log.Printf("解析link失败: %v", err)
+			log.Printf("解析link %d 失败: %v, Link内容: %s", link.ID, err, link.Link)
 			continue
 		}
 
