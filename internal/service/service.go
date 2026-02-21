@@ -1,18 +1,19 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"proxy-convert/internal/database"
 	"proxy-convert/internal/extractor"
 	"proxy-convert/internal/parser"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -39,11 +40,11 @@ func (s *LinkService) AddLink(link string, status int) (int64, error) {
 	return s.db.AddLink(link, status, fingerprint, name)
 }
 
-func (s *LinkService) GetAllLinks(status *int, limit, offset int) ([]database.Link, error) {
+func (s *LinkService) GetAllLinks(statuses []int, limit, offset int) ([]database.Link, error) {
 	if limit == 0 {
 		limit = 1000
 	}
-	return s.db.GetAllLinks(status, limit, offset)
+	return s.db.GetAllLinks(statuses, limit, offset)
 }
 
 func (s *LinkService) GetLink(id int) (*database.Link, error) {
@@ -58,131 +59,381 @@ func (s *LinkService) DeleteLink(id int) (bool, error) {
 	return s.db.DeleteLink(id)
 }
 
-func (s *LinkService) CountLinks(status *int) (int, error) {
-	return s.db.CountLinks(status)
+func (s *LinkService) CountLinks(statuses []int) (int, error) {
+	return s.db.CountLinks(statuses)
 }
 
 type VerifierService struct {
-	db *database.DB
+	db                  *database.DB
+	mihomoPath          string
+	testURL             string
+	timeout             time.Duration
+	externalControllerPort int
+}
+
+type NodeDelayTest struct {
+	Delay int `json:"delay"`
 }
 
 func NewVerifierService(db *database.DB) *VerifierService {
-	return &VerifierService{db: db}
+	mihomoPath := "./mihomo.exe"
+	if path := os.Getenv("MIHOMO_PATH"); path != "" {
+		mihomoPath = path
+	}
+
+	testURL := "http://www.google.com"
+	if url := os.Getenv("TEST_URL"); url != "" {
+		testURL = url
+	}
+
+	timeout := 10 * time.Second
+	if timeoutStr := os.Getenv("TIMEOUT"); timeoutStr != "" {
+		if t, err := time.ParseDuration(timeoutStr); err == nil {
+			timeout = t
+		}
+	}
+
+	return &VerifierService{
+		db:                  db,
+		mihomoPath:          mihomoPath,
+		testURL:             testURL,
+		timeout:             timeout,
+		externalControllerPort: 9090,
+	}
+}
+
+func (s *VerifierService) sanitizeName(name string) string {
+	result := ""
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			result += string(r)
+		} else {
+			result += "_"
+		}
+	}
+	if result == "" {
+		result = "proxy"
+	}
+	return result
+}
+
+func (s *VerifierService) buildProxyMap(proxy *parser.Proxy) map[string]interface{} {
+	proxyMap := map[string]interface{}{
+		"name":   proxy.Name,
+		"type":   proxy.Type,
+		"server": proxy.Server,
+		"port":   proxy.Port,
+	}
+
+	switch proxy.Type {
+	case "ss":
+		if cipher, ok := proxy.Extra["cipher"].(string); ok {
+			proxyMap["cipher"] = cipher
+		}
+		if password, ok := proxy.Extra["password"].(string); ok {
+			proxyMap["password"] = password
+		}
+	case "vmess":
+		if uuid, ok := proxy.Extra["uuid"].(string); ok {
+			proxyMap["uuid"] = uuid
+		}
+		if alterId, ok := proxy.Extra["alterId"].(int); ok {
+			proxyMap["alterId"] = alterId
+		}
+		if cipher, ok := proxy.Extra["cipher"].(string); ok {
+			proxyMap["cipher"] = cipher
+		}
+		if network, ok := proxy.Extra["network"].(string); ok {
+			proxyMap["network"] = network
+		}
+		if tls, ok := proxy.Extra["tls"].(bool); ok && tls {
+			proxyMap["tls"] = true
+			if servername, ok := proxy.Extra["servername"].(string); ok {
+				proxyMap["servername"] = servername
+			}
+		}
+		if wsOpts, ok := proxy.Extra["ws-opts"].(map[string]interface{}); ok {
+			proxyMap["ws-opts"] = wsOpts
+		}
+	case "vless":
+		if uuid, ok := proxy.Extra["uuid"].(string); ok {
+			proxyMap["uuid"] = uuid
+		}
+		if network, ok := proxy.Extra["network"].(string); ok {
+			proxyMap["network"] = network
+		}
+		if tls, ok := proxy.Extra["tls"].(bool); ok && tls {
+			proxyMap["tls"] = true
+			if servername, ok := proxy.Extra["servername"].(string); ok {
+				proxyMap["servername"] = servername
+			}
+		}
+		if flow, ok := proxy.Extra["flow"].(string); ok {
+			proxyMap["flow"] = flow
+		}
+		if wsOpts, ok := proxy.Extra["ws-opts"].(map[string]interface{}); ok {
+			proxyMap["ws-opts"] = wsOpts
+		}
+	case "trojan":
+		if password, ok := proxy.Extra["password"].(string); ok {
+			proxyMap["password"] = password
+		}
+		if sni, ok := proxy.Extra["sni"].(string); ok {
+			proxyMap["sni"] = sni
+		}
+	case "hysteria2", "hy2":
+		if authStr, ok := proxy.Extra["auth_str"].(string); ok {
+			proxyMap["password"] = authStr
+		}
+		if sni, ok := proxy.Extra["sni"].(string); ok {
+			proxyMap["sni"] = sni
+		}
+	default:
+		return nil
+	}
+
+	return proxyMap
+}
+
+func (s *VerifierService) writeConfig(configPath string, proxies []map[string]interface{}, proxyNames []string, externalControllerPort int) error {
+	config := map[string]interface{}{
+		"mixed-port":           7890,
+		"allow-lan":            false,
+		"mode":                 "rule",
+		"log-level":            "info",
+		"external-controller": fmt.Sprintf("127.0.0.1:%d", externalControllerPort),
+		"proxies":              proxies,
+		"proxy-groups": []map[string]interface{}{
+			{
+				"name":    "PROXY",
+				"type":    "select",
+				"proxies": proxyNames,
+			},
+		},
+		"rules": []string{
+			"MATCH,PROXY",
+		},
+	}
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Writing config to %s", configPath)
+	return os.WriteFile(configPath, data, 0644)
+}
+
+func (s *VerifierService) testNodeDelay(port int, proxyName, testURL string, timeout time.Duration) (int, error) {
+	client := &http.Client{
+		Timeout: timeout,
+	}
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d/proxies/%s/delay", port, url.PathEscape(proxyName))
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return -1, err
+	}
+
+	q := u.Query()
+	q.Set("timeout", fmt.Sprintf("%d", timeout.Milliseconds()))
+	q.Set("url", testURL)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return -1, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return -1, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return -1, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result NodeDelayTest
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return -1, err
+	}
+
+	return result.Delay, nil
 }
 
 func (s *VerifierService) VerifyLinks() error {
-	links, err := s.db.GetAllLinks(nil, 0, 0)
+	links, err := s.db.GetAllLinks([]int{0, 1}, 0, 0)
 	if err != nil {
 		return fmt.Errorf("获取links失败: %w", err)
 	}
 
-	log.Printf("开始验证 %d 个节点", len(links))
-
-	linkList := make([]string, len(links))
-	for i, link := range links {
-		linkList[i] = link.Link
+	if len(links) == 0 {
+		log.Println("No links to verify")
+		return nil
 	}
 
-	results := s.verifyNodes(linkList)
+	log.Printf("Found %d links to verify", len(links))
 
+	tempDir, err := os.MkdirTemp("", "mihomo-verifier-")
+	if err != nil {
+		return fmt.Errorf("创建临时目录失败: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	proxies := make([]map[string]interface{}, 0, len(links))
+	proxyNames := make([]string, 0, len(links))
+	nameCount := make(map[string]int)
+	nameMap := make(map[string]string)
+	linkMap := make(map[string]database.Link)
+
+	for _, link := range links {
+		proxy, err := parser.ParseLink(link.Link)
+		if err != nil {
+			log.Printf("解析link %d 失败: %v", link.ID, err)
+			continue
+		}
+
+		proxyMap := s.buildProxyMap(proxy)
+		if proxyMap != nil {
+			originalName := proxy.Name
+			safeBase := s.sanitizeName(originalName)
+			count := nameCount[safeBase]
+			nameCount[safeBase]++
+			
+			var safeName string
+			if count > 0 {
+				safeName = fmt.Sprintf("%s_%d", safeBase, count)
+			} else {
+				safeName = safeBase
+			}
+			
+			proxyMap["name"] = safeName
+			proxies = append(proxies, proxyMap)
+			proxyNames = append(proxyNames, safeName)
+			nameMap[safeName] = originalName
+			linkMap[safeName] = link
+			
+			log.Printf("Proxy: original=%q, safe=%q", originalName, safeName)
+		}
+	}
+
+	if len(proxies) == 0 {
+		log.Println("No valid proxies to test")
+		return nil
+	}
+
+	err = s.writeConfig(configPath, proxies, proxyNames, s.externalControllerPort)
+	if err != nil {
+		return fmt.Errorf("写入配置文件失败: %w", err)
+	}
+
+	log.Println("Starting mihomo...")
+	cmd := exec.Command(s.mihomoPath, "-d", tempDir)
+	
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	
+	err = cmd.Start()
+	if err != nil {
+		return fmt.Errorf("启动mihomo失败: %w", err)
+	}
+	defer func() {
+		if cmd.Process != nil {
+			log.Println("Killing mihomo process...")
+			cmd.Process.Kill()
+		}
+	}()
+
+	log.Println("Waiting for mihomo to start...")
+	ready := false
+	for i := 0; i < 30; i++ {
+		time.Sleep(1 * time.Second)
+		
+		client := &http.Client{
+			Timeout: 2 * time.Second,
+		}
+		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d", s.externalControllerPort))
+		if err == nil {
+			resp.Body.Close()
+			ready = true
+			log.Println("mihomo is ready!")
+			break
+		}
+		log.Printf("Waiting for mihomo... (%d/30)", i+1)
+	}
+
+	if !ready {
+		log.Printf("mihomo stdout: %s", stdout.String())
+		log.Printf("mihomo stderr: %s", stderr.String())
+		return fmt.Errorf("mihomo在30秒内启动失败")
+	}
+
+	log.Println("Testing node delays...")
+	results := make(map[string]int)
+
+	for _, proxyName := range proxyNames {
+		delay, err := s.testNodeDelay(s.externalControllerPort, proxyName, s.testURL, s.timeout)
+		if err != nil {
+			log.Printf("Failed to test node %s: %v", proxyName, err)
+			results[proxyName] = -1
+		} else {
+			log.Printf("Node %s delay: %dms", proxyName, delay)
+			results[proxyName] = delay
+		}
+	}
+
+	log.Println("Updating link statuses...")
 	successCount := 0
 	failCount := 0
 
+	reverseNameMap := make(map[string]string)
+	for safeName, originalName := range nameMap {
+		reverseNameMap[originalName] = safeName
+	}
+
 	for _, link := range links {
-		isAvailable := results[link.Link]
-		newStatus := 0
-		if isAvailable {
+		proxy, err := parser.ParseLink(link.Link)
+		if err != nil {
+			continue
+		}
+
+		safeName, ok := reverseNameMap[proxy.Name]
+		if !ok {
+			continue
+		}
+
+		delay, ok := results[safeName]
+		if !ok {
+			continue
+		}
+
+		newStatus := -1
+		if delay > 0 && delay < int(s.timeout.Milliseconds()) {
 			newStatus = 1
 			successCount++
 		} else {
-			newStatus = -1
 			failCount++
 		}
 
-		if _, err := s.db.UpdateLink(link.ID, nil, &newStatus, nil); err != nil {
-			log.Printf("更新link状态失败: %v", err)
+		_, err = s.db.UpdateLink(link.ID, nil, &newStatus, nil)
+		if err != nil {
+			log.Printf("更新link %d 失败: %v", link.ID, err)
 		}
 	}
 
-	log.Printf("Link verification completed: %d total, %d successful, %d failed", len(links), successCount, failCount)
+	log.Printf("Verification completed: %d successful, %d failed", successCount, failCount)
 	return nil
-}
-
-func (s *VerifierService) verifyNodes(links []string) map[string]bool {
-	results := make(map[string]bool)
-	var mu sync.Mutex
-
-	var wg sync.WaitGroup
-	chunkSize := 10
-
-	for i := 0; i < len(links); i += chunkSize {
-		end := i + chunkSize
-		if end > len(links) {
-			end = len(links)
-		}
-
-		chunk := links[i:end]
-		wg.Add(1)
-
-		go func(chunk []string) {
-			defer wg.Done()
-
-			for _, link := range chunk {
-				isAvailable := s.verifyNode(link)
-				mu.Lock()
-				results[link] = isAvailable
-				mu.Unlock()
-			}
-		}(chunk)
-	}
-
-	wg.Wait()
-	return results
-}
-
-func (s *VerifierService) verifyNode(link string) bool {
-	proxy, err := parser.ParseLink(link)
-	if err != nil {
-		log.Printf("解析节点失败: %v", err)
-		return false
-	}
-
-	log.Printf("验证节点: %s (%s:%d)", proxy.Name, proxy.Server, proxy.Port)
-
-	supportedProtocols := map[string]bool{
-		"vless":     true,
-		"mvless":    true,
-		"vmess":     true,
-		"trojan":    true,
-		"ss":        true,
-		"socks":     true,
-		"wireguard": true,
-		"hysteria":  true,
-		"hysteria2": true,
-		"hy2":       true,
-	}
-
-	if !supportedProtocols[proxy.Type] {
-		log.Printf("不支持的协议: %s", proxy.Type)
-		return true
-	}
-
-	return s.testConnection(proxy)
-}
-
-func (s *VerifierService) testConnection(proxy *parser.Proxy) bool {
-	address := fmt.Sprintf("%s:%d", proxy.Server, proxy.Port)
-	timeout := 5 * time.Second
-
-	conn, err := net.DialTimeout("tcp", address, timeout)
-	if err != nil {
-		log.Printf("连接 %s 失败: %v", address, err)
-		return false
-	}
-	defer conn.Close()
-
-	log.Printf("连接 %s 成功", address)
-	return true
 }
 
 type ExtractorService struct {
@@ -315,8 +566,8 @@ func NewClashService(db *database.DB) *ClashService {
 	return &ClashService{db: db}
 }
 
-func (s *ClashService) BuildClash(status *int) (map[string]interface{}, error) {
-	links, err := s.db.GetAllLinks(status, 0, 0)
+func (s *ClashService) BuildClash(statuses []int) (map[string]interface{}, error) {
+	links, err := s.db.GetAllLinks(statuses, 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("获取links失败: %w", err)
 	}
@@ -482,8 +733,8 @@ func (s *ClashService) loadClashTemplate() (map[string]interface{}, error) {
 	return template, nil
 }
 
-func (s *ClashService) ExportClashConfig(status *int, outputPath string) error {
-	config, err := s.BuildClash(status)
+func (s *ClashService) ExportClashConfig(statuses []int, outputPath string) error {
+	config, err := s.BuildClash(statuses)
 	if err != nil {
 		return err
 	}
@@ -501,8 +752,8 @@ func (s *ClashService) ExportClashConfig(status *int, outputPath string) error {
 	return nil
 }
 
-func (s *ClashService) ExportClashConfigYAML(status *int) ([]byte, error) {
-	config, err := s.BuildClash(status)
+func (s *ClashService) ExportClashConfigYAML(statuses []int) ([]byte, error) {
+	config, err := s.BuildClash(statuses)
 	if err != nil {
 		return nil, err
 	}

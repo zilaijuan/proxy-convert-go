@@ -119,15 +119,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 	router.GET("/api/links", func(c *gin.Context) {
 		status := c.Query("status")
-		var statusPtr *int
+		var statuses []int
 		if status != "" {
 			s := 0
 			if err := c.BindQuery(&s); err == nil {
-				statusPtr = &s
+				statuses = []int{s}
 			}
 		}
 
-		links, err := linkService.GetAllLinks(statusPtr, 0, 0)
+		links, err := linkService.GetAllLinks(statuses, 0, 0)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
@@ -230,15 +230,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 	router.GET("/api/links/count", func(c *gin.Context) {
 		status := c.Query("status")
-		var statusPtr *int
+		var statuses []int
 		if status != "" {
 			s := 0
 			if err := c.BindQuery(&s); err == nil {
-				statusPtr = &s
+				statuses = []int{s}
 			}
 		}
 
-		count, err := linkService.CountLinks(statusPtr)
+		count, err := linkService.CountLinks(statuses)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
@@ -258,15 +258,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 	router.GET("/api/clash/config", func(c *gin.Context) {
 		status := c.Query("status")
-		var statusPtr *int
+		var statuses []int
 		if status != "" {
 			s := 0
 			if err := c.BindQuery(&s); err == nil {
-				statusPtr = &s
+				statuses = []int{s}
 			}
 		}
 
-		config, err := clashService.BuildClash(statusPtr)
+		config, err := clashService.BuildClash(statuses)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
@@ -285,15 +285,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 	router.GET("/api/clash/export", func(c *gin.Context) {
 		status := c.Query("status")
-		var statusPtr *int
+		var statuses []int
 		if status != "" {
 			s := 0
 			if err := c.BindQuery(&s); err == nil {
-				statusPtr = &s
+				statuses = []int{s}
 			}
 		}
 
-		config, err := clashService.BuildClash(statusPtr)
+		config, err := clashService.BuildClash(statuses)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
@@ -313,15 +313,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 	router.GET("/api/clash", func(c *gin.Context) {
 		status := c.Query("status")
-		var statusPtr *int
+		var statuses []int
 		if status != "" {
 			s := 0
 			if err := c.BindQuery(&s); err == nil {
-				statusPtr = &s
+				statuses = []int{s}
 			}
 		}
 
-		yamlData, err := clashService.ExportClashConfigYAML(statusPtr)
+		yamlData, err := clashService.ExportClashConfigYAML(statuses)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Success: false,
