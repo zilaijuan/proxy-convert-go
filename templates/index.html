@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>链接导入工具</title>
+    <link rel="icon" href="/icon.png" type="image/png">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            margin-top: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>链接导入工具</h1>
+        <div class="form-group">
+            <label for="url">输入订阅链接 URL:</label>
+            <input type="text" id="url" placeholder="https://example.com/subscribe.txt" required>
+        </div>
+        <button id="importBtn">导入链接</button>
+        <div style="margin-top: 10px;"></div>
+        <button id="verifyBtn">验证链接</button>
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+            <h2>直接输入链接</h2>
+            <div class="form-group">
+                <label for="linksInput">输入链接（每行一个）:</label>
+                <textarea id="linksInput" placeholder="vmess://...&#10;trojan://...&#10;ss://..." rows="10"></textarea>
+            </div>
+            <button id="importTextBtn">导入输入的链接</button>
+        </div>
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+            <h2>订阅接口</h2>
+            <div class="form-group">
+                <label for="subscribeUrl">Clash 订阅链接:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="subscribeUrl" readonly style="flex: 1;">
+                    <button id="copyBtn" style="width: auto; padding: 0 20px;">复制</button>
+                </div>
+                <small style="display: block; margin-top: 5px; color: #666;">使用此链接在 Clash 客户端中添加订阅</small>
+            </div>
+            <div style="margin-top: 15px;">
+                <button id="showYamlBtn">显示订阅内容</button>
+            </div>
+        </div>
+        
+        <!-- YAML 内容弹窗 -->
+        <div id="yamlModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 1000;">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 800px; max-height: 80vh; overflow: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>订阅内容 (YAML)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="copyYamlBtn" style="width: auto; padding: 5px 15px;">复制内容</button>
+                        <button id="closeModalBtn" style="background-color: #f44336; width: auto; padding: 5px 15px;">关闭</button>
+                    </div>
+                </div>
+                <pre id="yamlContent" style="background-color: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-family: 'Courier New', monospace; font-size: 14px;"></pre>
+            </div>
+        </div>
+        <div class="loading" id="loading">正在导入，请稍候...</div>
+        <div class="loading" id="verifyLoading">正在验证，请稍候...</div>
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('importBtn').addEventListener('click', function() {
+            const url = document.getElementById('url').value;
+            const importBtn = document.getElementById('importBtn');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+
+            if (!url.trim()) {
+                showResult('请输入有效的URL地址', 'error');
+                return;
+            }
+
+            importBtn.disabled = true;
+            loading.style.display = 'block';
+            result.style.display = 'none';
+
+            fetch('/api/links/import', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url: url })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showResult(
+                        `导入成功！<br>
+                        总计链接: ${data.data.total_links}<br>
+                        新导入: ${data.data.imported}<br>
+                        已存在: ${data.data.existing}`,
+                        'success'
+                    );
+                } else {
+                    showResult('导入失败: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showResult('网络错误: ' + error.message, 'error');
+            })
+            .finally(() => {
+                importBtn.disabled = false;
+                loading.style.display = 'none';
+            });
+        });
+
+        document.getElementById('importTextBtn').addEventListener('click', function() {
+            const linksInput = document.getElementById('linksInput').value;
+            const importTextBtn = document.getElementById('importTextBtn');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+
+            if (!linksInput.trim()) {
+                showResult('请输入有效的链接', 'error');
+                return;
+            }
+
+            importTextBtn.disabled = true;
+            loading.style.display = 'block';
+            result.style.display = 'none';
+
+            fetch('/api/links/import-text', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ links: linksInput })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showResult(
+                        `导入成功！<br>
+                        总计链接: ${data.data.total_links}<br>
+                        新导入: ${data.data.imported}<br>
+                        已存在: ${data.data.existing}`,
+                        'success'
+                    );
+                    document.getElementById('linksInput').value = '';
+                } else {
+                    showResult('导入失败: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showResult('网络错误: ' + error.message, 'error');
+            })
+            .finally(() => {
+                importTextBtn.disabled = false;
+                loading.style.display = 'none';
+            });
+        });
+
+        function showResult(message, type) {
+            const result = document.getElementById('result');
+            result.innerHTML = message;
+            result.className = 'result ' + type;
+            result.style.display = 'block';
+        }
+
+        document.getElementById('verifyBtn').addEventListener('click', function() {
+            const verifyBtn = document.getElementById('verifyBtn');
+            const verifyLoading = document.getElementById('verifyLoading');
+            const result = document.getElementById('result');
+
+            verifyBtn.disabled = true;
+            verifyLoading.style.display = 'block';
+            result.style.display = 'none';
+
+            fetch('/api/links/verify', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showResult(data.message, 'success');
+                } else {
+                    showResult('验证失败: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showResult('网络错误: ' + error.message, 'error');
+            })
+            .finally(() => {
+                verifyBtn.disabled = false;
+                verifyLoading.style.display = 'none';
+            });
+        });
+
+        document.getElementById('url').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('importBtn').click();
+            }
+        });
+
+        function setSubscribeUrl() {
+            const currentUrl = window.location.origin;
+            const subscribeUrl = `${currentUrl}/api/clash`;
+            document.getElementById('subscribeUrl').value = subscribeUrl;
+        }
+
+        document.getElementById('copyBtn').addEventListener('click', function() {
+            const subscribeUrl = document.getElementById('subscribeUrl');
+            const copyBtn = document.getElementById('copyBtn');
+            
+            subscribeUrl.select();
+            subscribeUrl.setSelectionRange(0, 99999);
+            
+            try {
+                document.execCommand('copy');
+                
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '已复制！';
+                copyBtn.style.backgroundColor = '#4CAF50';
+                
+                setTimeout(function() {
+                    copyBtn.textContent = originalText;
+                    copyBtn.style.backgroundColor = '';
+                }, 2000);
+            } catch (err) {
+                console.error('复制失败:', err);
+            }
+        });
+
+        function highlightYaml(yaml) {
+            yaml = yaml.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            yaml = yaml.replace(/(#.*)/g, '<span style="color: #6a9955;">$1</span>');
+            
+            yaml = yaml.replace(/^(\s*)([^\s#:]+)(\s*:)/gm, '$1<span style="color: #569cd6;">$2</span>$3');
+            
+            yaml = yaml.replace(/(:\s*)("[^"]*")/g, '$1<span style="color: #ce9178;">$2</span>');
+            yaml = yaml.replace(/(:\s*)(\'[^\']*\')/g, '$1<span style="color: #ce9178;">$2</span>');
+            
+            yaml = yaml.replace(/(:\s*)(true|false|null|\d+)/g, '$1<span style="color: #b5cea8;">$2</span>');
+            
+            return yaml;
+        }
+
+        window.onload = setSubscribeUrl;
+
+        document.getElementById('showYamlBtn').addEventListener('click', function() {
+            const showYamlBtn = document.getElementById('showYamlBtn');
+            const yamlModal = document.getElementById('yamlModal');
+            const yamlContent = document.getElementById('yamlContent');
+            
+            showYamlBtn.disabled = true;
+            yamlContent.textContent = '正在加载订阅内容...';
+            yamlModal.style.display = 'block';
+            
+            const subscribeUrl = document.getElementById('subscribeUrl').value;
+            
+            fetch(subscribeUrl, {
+                method: 'GET'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.text();
+            })
+            .then(data => {
+                yamlContent.innerHTML = highlightYaml(data);
+            })
+            .catch(error => {
+                yamlContent.textContent = '加载失败: ' + error.message;
+            })
+            .finally(() => {
+                showYamlBtn.disabled = false;
+            });
+        });
+
+        document.getElementById('closeModalBtn').addEventListener('click', function() {
+            document.getElementById('yamlModal').style.display = 'none';
+        });
+
+        document.getElementById('copyYamlBtn').addEventListener('click', function() {
+            const yamlContent = document.getElementById('yamlContent');
+            const copyYamlBtn = document.getElementById('copyYamlBtn');
+            
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = yamlContent.textContent;
+            document.body.appendChild(tempTextArea);
+            
+            tempTextArea.select();
+            tempTextArea.setSelectionRange(0, 99999);
+            
+            try {
+                document.execCommand('copy');
+                
+                const originalText = copyYamlBtn.textContent;
+                copyYamlBtn.textContent = '已复制！';
+                copyYamlBtn.style.backgroundColor = '#4CAF50';
+                
+                setTimeout(function() {
+                    copyYamlBtn.textContent = originalText;
+                    copyYamlBtn.style.backgroundColor = '';
+                }, 2000);
+            } catch (err) {
+                console.error('复制失败:', err);
+            } finally {
+                document.body.removeChild(tempTextArea);
+            }
+        });
+
+        window.onclick = function(event) {
+            const yamlModal = document.getElementById('yamlModal');
+            if (event.target === yamlModal) {
+                yamlModal.style.display = 'none';
+            }
+        };
+    </script>
+</body>
+</html>

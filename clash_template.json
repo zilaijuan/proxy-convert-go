@@ -1,0 +1,470 @@
+{
+    "mode": "rule",
+    "ipv6": true,
+    "allow-lan": true,
+    "bind-address": "*",
+    "mixed-port": 6088,
+    "log-level": "error",
+    "unified-delay": true,
+    "tcp-concurrent": true,
+    "external-controller": "0.0.0.0:9090",
+    "tun": {
+        "enable": true,
+        "stack": "system",
+        "auto-route": true
+    },
+    "dns": {
+        "enable": true,
+        "cache-algorithm": "arc",
+        "listen": "0.0.0.0:1053",
+        "ipv6": true,
+        "enhanced-mode": "fake-ip",
+        "fake-ip-range": "198.18.0.1/16",
+        "fake-ip-filter": [
+            "*.lan",
+            "lens.l.google.com",
+            "*.srv.nintendo.net",
+            "*.stun.playstation.net",
+            "xbox.*.*.microsoft.com",
+            "*.xboxlive.com",
+            "*.msftncsi.com",
+            "*.msftconnecttest.com"
+        ],
+        "default-nameserver": [
+            "119.29.29.29",
+            "223.5.5.5"
+        ],
+        "nameserver": [
+            "system",
+            "119.29.29.29",
+            "223.5.5.5"
+        ],
+        "fallback": [
+            "8.8.8.8",
+            "1.1.1.1"
+        ],
+        "fallback-filter": {
+            "geoip": true,
+            "geoip-code": "CN"
+        }
+    },
+    "proxies": [
+        {
+            "name": "HK01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 45579,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "HK02",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43562,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "HK03",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43563,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "HK04",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 58899,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "HK05",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43565,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "SG01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43566,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "SG02",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43567,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "US01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43568,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "US02",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43577,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "TW01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43570,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "EN01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43571,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "IN01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 51927,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "AU01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43573,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        },
+        {
+            "name": "JP01",
+            "type": "ss",
+            "server": "62765eb680fa.kozow.com",
+            "port": 43679,
+            "cipher": "aes-256-gcm",
+            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
+            "udp": true,
+            "tfo": true
+        }
+    ],
+    "proxy-groups": [
+        {
+            "name": "🚀 Proxy",
+            "type": "select",
+            "proxies": [
+                "🌏 Auto",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🌏 Auto",
+            "type": "url-test",
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": 180,
+            "proxies": [
+                
+            ]
+        },
+        {
+            "name": "🍎 Apple",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🔍 Google",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🪟 Microsoft",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "📺 GlobalMedia",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "📟 Telegram",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🤖 AI",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🪙 Crypto",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🎮 Game",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        },
+        {
+            "name": "🇨🇳 China",
+            "type": "select",
+            "proxies": [
+                "🎯 Direct",
+                "🚀 Proxy"
+            ]
+        },
+        {
+            "name": "🎯 Direct",
+            "type": "select",
+            "proxies": [
+                "DIRECT"
+            ],
+            "hidden": true
+        },
+        {
+            "name": "🐠 Final",
+            "type": "select",
+            "proxies": [
+                "🚀 Proxy",
+                "🎯 Direct"
+            ]
+        }
+    ],
+    "rules": [
+        "RULE-SET, Apple, 🍎 Apple",
+        "RULE-SET, Google, 🔍 Google",
+        "RULE-SET, Microsoft, 🪟 Microsoft",
+        "RULE-SET, Github, 🪟 Microsoft",
+        "RULE-SET, HBO, 📺 GlobalMedia",
+        "RULE-SET, Disney, 📺 GlobalMedia",
+        "RULE-SET, TikTok, 📺 GlobalMedia",
+        "RULE-SET, Netflix, 📺 GlobalMedia",
+        "RULE-SET, GlobalMedia, 📺 GlobalMedia",
+        "RULE-SET, Telegram, 📟 Telegram",
+        "RULE-SET, OpenAI, 🤖 AI",
+        "RULE-SET, Gemini, 🤖 AI",
+        "RULE-SET, Copilot, 🤖 AI",
+        "RULE-SET, Claude, 🤖 AI",
+        "RULE-SET, Crypto, 🪙 Crypto",
+        "RULE-SET, Cryptocurrency, 🪙 Crypto",
+        "RULE-SET, Game, 🎮 Game",
+        "RULE-SET, Global, 🚀 Proxy",
+        "RULE-SET, ChinaMax, 🇨🇳 China",
+        "RULE-SET, Lan, 🎯 Direct",
+        "GEOIP, CN, 🇨🇳 China",
+        "MATCH, 🐠 Final"
+    ],
+    "rule-providers": {
+        "Apple": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Apple/Apple_Classical_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "Google": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Google/Google_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "Microsoft": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Microsoft/Microsoft.yaml",
+            "interval": 86400
+        },
+        "Github": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/GitHub/GitHub.yaml",
+            "interval": 86400
+        },
+        "HBO": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/HBO/HBO.yaml",
+            "interval": 86400
+        },
+        "Disney": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Disney/Disney.yaml",
+            "interval": 86400
+        },
+        "TikTok": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/TikTok/TikTok.yaml",
+            "interval": 86400
+        },
+        "Netflix": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Netflix/Netflix.yaml",
+            "interval": 86400
+        },
+        "GlobalMedia": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/GlobalMedia/GlobalMedia_Classical_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "Telegram": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Telegram/Telegram_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "OpenAI": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/OpenAI/OpenAI.yaml",
+            "interval": 86400
+        },
+        "Gemini": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Gemini/Gemini.yaml",
+            "interval": 86400
+        },
+        "Copilot": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Copilot/Copilot.yaml",
+            "interval": 86400
+        },
+        "Claude": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Claude/Claude.yaml",
+            "interval": 86400
+        },
+        "Crypto": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Crypto/Crypto.yaml",
+            "interval": 86400
+        },
+        "Cryptocurrency": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Cryptocurrency/Cryptocurrency.yaml",
+            "interval": 86400
+        },
+        "Game": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Game/Game.yaml",
+            "interval": 86400
+        },
+        "Global": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Global/Global_Classical_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "ChinaMax": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/ChinaMax/ChinaMax_Classical_No_Resolve.yaml",
+            "interval": 86400
+        },
+        "Lan": {
+            "type": "http",
+            "behavior": "classical",
+            "format": "yaml",
+            "url": "https://cdn.jsdmirror.com/gh/perfect-panel/rules/rule/Clash/Lan/Lan.yaml",
+            "interval": 86400
+        }
+    },
+    "url-rewrite": [
+        "^https?:\\/\\/(www.)?g\\.cn https://www.google.com 302",
+        "^https?:\\/\\/(www.)?google\\.cn https://www.google.com 302"
+    ]
+}
