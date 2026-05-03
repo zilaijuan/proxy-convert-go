@@ -64,8 +64,8 @@
 
 - 导入 URL 订阅
 - 导入文本订阅
-- 从配置中的 V2rayse URL 提取节点
-- 从配置中的 GitHub/raw URL 提取节点
+- 从内置 V2rayse source 提取节点
+- 从内置 GitHub/raw source 提取节点
 - 解析 SS、VMess、VLESS、Trojan、Hysteria2、AnyTLS
 - 存储、查询、删除、统计链接
 - 验证节点
@@ -79,8 +79,10 @@
 
 1. 在 `internal/extractor/sources/` 下新增一个文件，例如 `example.go`。
 2. 在该文件中实现该网站自己的页面解析逻辑。
-3. 在该文件的 `init()` 或显式注册函数中注册 source。
-4. 在 `config.yaml` 中增加对应 source 配置。
+3. 在该文件的 `init()` 中注册 source。
+4. source 文件内声明自己的默认 URL。
+
+不需要修改 `config.yaml`，也不需要修改 scheduler、service 或统一导入流程。
 
 除此之外，以下步骤应完全复用现成流程：
 
@@ -136,13 +138,12 @@ type LinkRepository interface {
 
 ### 4.1 核心思想
 
-把所有站点提取逻辑统一抽象成 `Source`。每个 `Source` 只负责一件事：从配置给定的 URL 中提取出原始代理链接列表。
+把所有站点提取逻辑统一抽象成 `Source`。每个 `Source` 只负责一件事：从自己声明的默认 URL 中提取出原始代理链接列表。
 
 通用流程由 `ExtractorService` 负责：
 
 ```text
-读取配置中的 sources
-  -> 根据 source.type 从 registry 找到实现
+读取 registry 中所有已注册 sources
   -> 使用统一 Fetcher 获取网页或订阅内容
   -> 调用 source.Extract 解析代理 URL
   -> 汇总所有 source 的结果
@@ -157,9 +158,9 @@ type LinkRepository interface {
 
 ```text
 internal/extractor/
-  extractor.go          # Source 接口、SourceConfig、ExtractResult 等公共类型
+  extractor.go          # Source 接口、SourceRequest、ExtractResult 等公共类型
   registry.go           # RegisterSource / GetSource / ListSources
-  runner.go             # 遍历配置 sources，执行所有来源
+  runner.go             # 遍历已注册 sources，执行所有来源
   fetcher.go            # Fetcher 接口和 HTTPFetcher 实现
   content_parser.go     # 通用订阅文本解析
   base64.go             # base64 判断和解码 helper
@@ -182,13 +183,14 @@ internal/extractor/sources/foobar.go
 ```go
 type Source interface {
     Type() string
+    Name() string
+    DefaultURLs() []string
     Extract(ctx context.Context, req SourceRequest) ([]string, error)
 }
 
 type SourceRequest struct {
     URLs    []string
     Fetcher Fetcher
-    Options map[string]string
 }
 
 type Fetcher interface {
@@ -198,10 +200,14 @@ type Fetcher interface {
 
 设计原则：
 
-- `Type()` 用来匹配配置里的 `type`。
+- `Type()` 是稳定唯一标识，例如 `v2rayse`、`github`、`foobar`。
+- `Name()` 用于日志展示。
+- `DefaultURLs()` 由 source 自己声明，因此新增 source 不需要改配置。
 - `Extract()` 返回原始代理链接，不负责入库。
 - `Fetcher` 由外部注入，source 不自己创建 `http.Client`。
-- `Options` 用于给少数来源传特殊参数，避免每新增来源就改全局 config struct。
+- 如果某个 source 需要特殊参数，优先在该 source 文件内定义常量或私有配置结构。
+
+Go 没有原生“注解扫描”机制。这里推荐使用 `init()` 自动注册，相当于 Go 项目中最轻量的插件式注册方式。只要新文件属于 `internal/extractor/sources` 包，并且该包被应用装配层 blank import 一次，新文件就会被编译并自动注册。
 
 ### 4.4 Registry 设计
 
@@ -218,6 +224,14 @@ func GetSource(sourceType string) (Source, bool) {
     source, ok := sources[sourceType]
     return source, ok
 }
+
+func ListSources() []Source {
+    result := make([]Source, 0, len(sources))
+    for _, source := range sources {
+        result = append(result, source)
+    }
+    return result
+}
 ```
 
 每个来源文件自己注册：
@@ -230,71 +244,61 @@ func init() {
 
 如果不希望使用 `init()`，也可以在 `sources/register.go` 中集中注册。但为了满足“新增一个代码文件”的目标，推荐使用 `init()` 自动注册。
 
-### 4.5 配置设计
-
-当前配置：
-
-```yaml
-extractor:
-  v2rayseURLs:
-    - https://test.v2rayse.com/live-node
-    - https://test.v2rayse.com/free-node
-  githubURLs:
-    - https://cdn.jsdmirror.com/gh/arshiacomplus/v2rayExtractor/mix/sub.html
-```
-
-建议迁移为：
-
-```yaml
-extractor:
-  sources:
-    - type: v2rayse
-      enabled: true
-      urls:
-        - https://test.v2rayse.com/live-node
-        - https://test.v2rayse.com/free-node
-
-    - type: github
-      enabled: true
-      urls:
-        - https://cdn.jsdmirror.com/gh/arshiacomplus/v2rayExtractor/mix/sub.html
-
-    - type: foobar
-      enabled: true
-      urls:
-        - https://example.com/proxy-page
-      options:
-        selector: "#proxy-list"
-```
-
-推荐结构体：
+应用启动时需要确保 sources 包被导入一次：
 
 ```go
-type ExtractorConfig struct {
-    Sources []SourceConfig `yaml:"sources"`
-}
-
-type SourceConfig struct {
-    Type    string            `yaml:"type"`
-    Enabled bool              `yaml:"enabled"`
-    URLs    []string          `yaml:"urls"`
-    Options map[string]string `yaml:"options"`
-}
+import _ "proxy-convert/internal/extractor/sources"
 ```
 
-为了兼容现有配置，第一阶段可以同时支持旧字段：
+这行只需要写一次。后续在 `sources` 包下新增 `.go` 文件，会自动参与编译和注册。
+
+### 4.5 默认 URL 设计
+
+新增 source 不通过配置生效，而是由 source 自己声明默认 URL。
+
+以 GitHub source 为例：
 
 ```go
-type ExtractorConfig struct {
-    Sources    []SourceConfig `yaml:"sources"`
-    V2rayseURLs []string      `yaml:"v2rayseURLs"`
-    GitHubURLs  []string      `yaml:"githubURLs"`
+func (s *GitHubSource) DefaultURLs() []string {
+    return []string{
+        "https://cdn.jsdmirror.com/gh/arshiacomplus/v2rayExtractor/mix/sub.html",
+    }
 }
 ```
 
-加载配置时，如果 `sources` 为空，就把旧字段转换成两个默认 source。
+以 V2rayse source 为例：
 
-### 4.6 新增来源示例
+```go
+func (s *V2rayseSource) DefaultURLs() []string {
+    return []string{
+        "https://test.v2rayse.com/live-node",
+        "https://test.v2rayse.com/free-node",
+    }
+}
+```
+
+如果后续确实需要临时禁用某个来源，建议单独设计“运行时开关”，但不作为新增来源生效的必要条件。第一版可以默认所有注册 source 都启用。
+
+### 4.6 可选：注释生成方式
+
+如果强烈希望使用“注解式”的写法，Go 中更接近的方式是通过 `go:generate` 读取特殊注释生成注册文件，例如：
+
+```go
+//proxyconvert:source type=foobar name="FooBar Source"
+type FooBarSource struct{}
+```
+
+然后生成：
+
+```go
+func init() {
+    extractor.RegisterSource(NewFooBarSource())
+}
+```
+
+但这会增加生成步骤，开发体验反而不如 `init()` 简洁。除非后续 source 数量很多，或者需要生成文档/校验清单，否则不建议第一版使用注释生成。
+
+### 4.7 新增来源示例
 
 新增一个普通文本或 base64 订阅来源时，只需要写类似文件：
 
@@ -314,6 +318,16 @@ func NewFooBarSource() *FooBarSource {
 
 func (s *FooBarSource) Type() string {
     return "foobar"
+}
+
+func (s *FooBarSource) Name() string {
+    return "FooBar"
+}
+
+func (s *FooBarSource) DefaultURLs() []string {
+    return []string{
+        "https://example.com/proxy-page",
+    }
 }
 
 func (s *FooBarSource) Extract(ctx context.Context, req extractor.SourceRequest) ([]string, error) {
@@ -338,7 +352,7 @@ func init() {
 
 如果某个网站需要特殊 HTML/JSON 解析，只在这个文件中实现，最终仍然返回 `[]string`。
 
-### 4.7 Runner 设计
+### 4.8 Runner 设计
 
 `runner` 负责执行所有 source：
 
@@ -347,24 +361,13 @@ type Runner struct {
     fetcher Fetcher
 }
 
-func (r *Runner) Run(ctx context.Context, configs []SourceConfig) ([]string, error) {
+func (r *Runner) Run(ctx context.Context) ([]string, error) {
     var allLinks []string
 
-    for _, cfg := range configs {
-        if !cfg.Enabled {
-            continue
-        }
-
-        source, ok := GetSource(cfg.Type)
-        if !ok {
-            // 记录 unknown source，继续处理其他 source
-            continue
-        }
-
+    for _, source := range ListSources() {
         links, err := source.Extract(ctx, SourceRequest{
-            URLs:    cfg.URLs,
+            URLs:    source.DefaultURLs(),
             Fetcher: r.fetcher,
-            Options: cfg.Options,
         })
         if err != nil {
             // 记录该 source 失败，继续处理其他 source
@@ -380,7 +383,7 @@ func (r *Runner) Run(ctx context.Context, configs []SourceConfig) ([]string, err
 
 这里建议单个来源失败不影响其他来源，最终在日志或 `ImportResult` 中记录失败来源。
 
-### 4.8 Service 调用方式
+### 4.9 Service 调用方式
 
 重构后不再需要：
 
@@ -392,7 +395,7 @@ ExtractFromGitHub()
 推荐改成统一方法：
 
 ```go
-func (s *ExtractorService) ExtractFromSources(ctx context.Context, sources []extractor.SourceConfig) (ImportResult, error)
+func (s *ExtractorService) ExtractFromSources(ctx context.Context) (ImportResult, error)
 ```
 
 为了兼容旧调用，可以临时保留：
@@ -404,7 +407,7 @@ func (s *ExtractorService) ExtractFromGitHub() error
 
 但内部都转到统一的 `ExtractFromSources`。
 
-### 4.9 新增来源时的开发约束
+### 4.10 新增来源时的开发约束
 
 每个 source 文件应遵守：
 
@@ -413,6 +416,7 @@ func (s *ExtractorService) ExtractFromGitHub() error
 - 不自己创建长期 HTTP client。
 - 不负责全局去重。
 - 不读取全局配置。
+- 自己声明默认 URL。
 - 只返回提取到的原始代理 URL。
 - 可以使用公共 helper：`ContentParser`、`Dedupe`、base64 helper、Fetcher。
 
@@ -577,7 +581,7 @@ go test ./...
 
 任务：
 
-- 新增 `Source`、`SourceRequest`、`SourceConfig`
+- 新增 `Source`、`SourceRequest`
 - 新增 `RegisterSource`、`GetSource`
 - 新增 `Runner`
 - 新增 `Fetcher` 和 `HTTPFetcher`
@@ -588,8 +592,8 @@ go test ./...
 - 移除 `V2rayseExtractor.base64Strings` 字段，改为局部变量返回
 - 抽出公共 `Dedupe`
 - 抽出公共 base64 helper
-- 支持 `extractor.sources` 新配置
-- 兼容旧的 `v2rayseURLs` 和 `githubURLs`
+- 内置 GitHub/V2rayse source 自带当前默认 URL
+- 应用装配层 blank import `internal/extractor/sources`
 
 验收：
 
@@ -606,7 +610,7 @@ go test ./...
 任务：
 
 - `ExtractorService` 通过构造函数注入 `extractor.Runner`
-- 新增 `ExtractFromSources(ctx, sources)` 统一入口
+- 新增 `ExtractFromSources(ctx)` 统一入口
 - 将 `ExtractFromV2rayse` 和 `ExtractFromGitHub` 暂时保留为兼容包装
 - 将 `config.Get()` 调用尽量移到 scheduler 或 app 装配处
 - 为 `importLinks` 引入结构化返回值
@@ -632,15 +636,14 @@ type ImportResult struct {
 
 任务：
 
-- scheduler 每次执行时读取最新 `config.Get().Extractor.Sources`
-- 调用 `ExtractorService.ExtractFromSources`
+- scheduler 调用 `ExtractorService.ExtractFromSources`
 - 移除定时任务中分别调用 V2rayse/GitHub 的流程
 - 保留日志中每个 source 的成功/失败统计
 
 验收：
 
 - 当前两个来源仍按定时任务执行
-- 配置增加第三个 source 后无需改 scheduler
+- 新增第三个 source 文件后无需改 scheduler
 
 ### 阶段 5：拆分 handlers 文件
 
@@ -700,10 +703,9 @@ HTTP POST /api/links/import
 
 ```text
 scheduler
-  -> config.Get().Extractor.Sources
   -> service.ExtractorService.ExtractFromSources
   -> extractor.Runner.Run
-  -> registry.GetSource(source.type)
+  -> registry.ListSources
   -> source.Extract
   -> fetcher.Fetch
   -> service.importLinks
@@ -716,7 +718,6 @@ scheduler
 新增 internal/extractor/sources/foo.go
   -> 实现 Source
   -> init 注册 Source
-  -> config.yaml 增加 type: foo
   -> scheduler 自动执行
   -> service 自动导入数据库
 ```
@@ -799,7 +800,7 @@ HTTP GET /api/clash
 
 - 短期保留 `config.Get()` 在少数边界处
 - 中期引入 `ConfigProvider`
-- scheduler 每次执行任务前读取最新配置
+- 如果保留部分运行时配置，scheduler 每次执行任务前读取最新配置
 
 ### 9.4 数据库唯一约束语义不清
 
@@ -845,7 +846,7 @@ HTTP GET /api/clash
 - 导入 URL 和导入文本功能可用
 - 定时任务仍能执行提取和验证
 - extractor 单元测试不依赖真实网络
-- 新增来源只需要新增一个 source 文件和配置项
+- 新增来源只需要新增一个 source 文件
 - scheduler 不依赖具体来源类型
 - handler 参数解析有测试覆盖
 - `main.go` 或 app 装配逻辑清晰
@@ -862,11 +863,11 @@ go vet ./...
 
 如果以“来源扩展性”为优先目标，建议先从阶段 2 开始做一条垂直切片：
 
-1. 定义 `Source`、`SourceConfig`、`Registry`、`Runner`。
+1. 定义 `Source`、`SourceRequest`、`Registry`、`Runner`。
 2. 先把 GitHub 接入新流程。
 3. 再把 V2rayse 接入新流程。
 4. 让 scheduler 调用统一 `ExtractFromSources`。
-5. 保留旧配置兼容，确认现有行为不变。
+5. 确认新增 source 文件后自动参与定时提取。
 
 如果以“先修 bug、降低风险”为优先目标，仍然可以先从阶段 1 开始：
 

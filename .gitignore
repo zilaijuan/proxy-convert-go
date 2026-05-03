@@ -12,3 +12,5 @@ bin/
 .DS_Store
 .gocache
 vendor
+v2rayse.md
+config.yaml

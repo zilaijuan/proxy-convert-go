@@ -56,8 +56,14 @@ type SchedulerConfig struct {
 }
 
 type ExtractorConfig struct {
-	V2rayseURLs []string `yaml:"v2rayseURLs"`
-	GitHubURLs  []string `yaml:"githubURLs"`
+	V2rayseURLs []string             `yaml:"v2rayseURLs"`
+	GitHubURLs  []string             `yaml:"githubURLs"`
+	V2rayse     V2rayseExtractorAuth `yaml:"v2rayse"`
+}
+
+type V2rayseExtractorAuth struct {
+	Email    string `yaml:"email"`
+	Password string `yaml:"password"`
 }
 
 func Load() *Config {
@@ -247,6 +253,12 @@ func mergeConfig(target, source *Config) {
 	}
 	if len(source.Extractor.GitHubURLs) > 0 {
 		target.Extractor.GitHubURLs = source.Extractor.GitHubURLs
+	}
+	if source.Extractor.V2rayse.Email != "" {
+		target.Extractor.V2rayse.Email = source.Extractor.V2rayse.Email
+	}
+	if source.Extractor.V2rayse.Password != "" {
+		target.Extractor.V2rayse.Password = source.Extractor.V2rayse.Password
 	}
 }
 

@@ -1,10 +1,12 @@
 package scheduler
 
 import (
+	"context"
+	"time"
+
 	"proxy-convert/internal/config"
 	"proxy-convert/internal/logger"
 	"proxy-convert/internal/service"
-	"time"
 )
 
 type Scheduler struct {
@@ -38,7 +40,6 @@ func (s *Scheduler) Start() {
 		select {
 		case <-ticker.C:
 			s.runScheduledTasks()
-			// 检查并更新间隔时间
 			newInterval := config.Get().Scheduler.Interval
 			if newInterval != s.interval {
 				s.interval = newInterval
@@ -59,12 +60,8 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) runScheduledTasks() {
 	logger.Printf("\n[定时任务] 开始执行 - %s", time.Now().Format("2006-01-02 15:04:05"))
 
-	if err := s.extractorService.ExtractFromV2rayse(); err != nil {
-		logger.Printf("[定时任务] ExtractFromV2rayse执行失败: %v", err)
-	}
-
-	if err := s.extractorService.ExtractFromGitHub(); err != nil {
-		logger.Printf("[定时任务] ExtractFromGitHub执行失败: %v", err)
+	if _, err := s.extractorService.ExtractFromSources(context.Background()); err != nil {
+		logger.Printf("[定时任务] 来源提取执行失败: %v", err)
 	}
 
 	logger.Println("[定时任务] 开始验证所有节点...")
@@ -72,7 +69,6 @@ func (s *Scheduler) runScheduledTasks() {
 		logger.Printf("[定时任务] 节点验证失败: %v", err)
 	}
 
-	// 每天执行一次删除半年前status为-1的不可用数据
 	currentDate := time.Now().Format("2006-01-02")
 	if currentDate != s.lastCleanupDate {
 		logger.Println("[定时任务] 开始删除半年前不可用数据...")
@@ -81,7 +77,6 @@ func (s *Scheduler) runScheduledTasks() {
 		} else {
 			logger.Printf("[定时任务] 成功删除 %d 条半年前不可用数据", rowsAffected)
 		}
-		// 无论成功失败，都更新日期标记，确保每天只尝试一次
 		s.lastCleanupDate = currentDate
 	}
 

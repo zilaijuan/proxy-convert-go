@@ -1,28 +1,51 @@
 package service
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"net/http"
+	"time"
+
 	"proxy-convert/internal/config"
 	"proxy-convert/internal/database"
 	"proxy-convert/internal/extractor"
 	"proxy-convert/internal/logger"
 	"proxy-convert/internal/parser"
+
+	"proxy-convert/internal/extractor/sources"
 )
 
 type ExtractorService struct {
-	db  *database.DB
-	cfg *config.Config
+	db      *database.DB
+	cfg     *config.Config
+	runner  *extractor.Runner
+	fetcher extractor.Fetcher
+}
+
+type ImportResult struct {
+	Imported int
+	Existing int
+	Failed   int
 }
 
 func NewExtractorService(db *database.DB, cfg *config.Config) *ExtractorService {
-	return &ExtractorService{db: db, cfg: cfg}
+	fetcher := extractor.NewHTTPFetcher(10 * time.Second)
+	sources.SetV2rayseCredentialsProvider(func() (string, string) {
+		latestCfg := config.Get()
+		if latestCfg == nil {
+			return "", ""
+		}
+		return latestCfg.Extractor.V2rayse.Email, latestCfg.Extractor.V2rayse.Password
+	})
+	return &ExtractorService{
+		db:      db,
+		cfg:     cfg,
+		runner:  extractor.NewRunner(fetcher),
+		fetcher: fetcher,
+	}
 }
 
-func (s *ExtractorService) importLinks(links []string, logPrefix string) (int, int) {
-	importedCount := 0
-	existingCount := 0
+func (s *ExtractorService) importLinks(links []string, logPrefix string) ImportResult {
+	result := ImportResult{}
 
 	for _, link := range links {
 		proxy, err := parser.ParseLink(link)
@@ -40,62 +63,71 @@ func (s *ExtractorService) importLinks(links []string, logPrefix string) (int, i
 
 		id, err := s.db.AddLink(link, 0, fingerprint, name)
 		if err != nil {
-			existingCount++
-		} else {
-			importedCount++
-			if id > 0 {
-				logger.Printf("导入link ID: %d", id)
-			}
+			result.Existing++
+			continue
+		}
+
+		result.Imported++
+		if id > 0 {
+			logger.Printf("导入link ID: %d", id)
 		}
 	}
 
-	logger.Printf("%s链接导入完成: 新增 %d 个, 已存在 %d 个", logPrefix, importedCount, existingCount)
-	return importedCount, existingCount
+	logger.Printf("%s链接导入完成: 新增 %d 个, 已存在 %d 个", logPrefix, result.Imported, result.Existing)
+	return result
+}
+
+func (s *ExtractorService) ExtractFromSources(ctx context.Context) (ImportResult, error) {
+	results := s.runner.Run(ctx)
+	total := ImportResult{}
+
+	for _, sourceResult := range results {
+		if sourceResult.Err != nil {
+			total.Failed++
+			continue
+		}
+
+		importResult := s.importLinks(sourceResult.Links, sourceResult.SourceName)
+		total.Imported += importResult.Imported
+		total.Existing += importResult.Existing
+		total.Failed += importResult.Failed
+	}
+
+	logger.Printf("所有来源导入完成: 新增 %d 个, 已存在 %d 个, 失败来源 %d 个", total.Imported, total.Existing, total.Failed)
+	return total, nil
+}
+
+func (s *ExtractorService) ExtractFromAllSources() error {
+	_, err := s.ExtractFromSources(context.Background())
+	return err
 }
 
 func (s *ExtractorService) ExtractFromV2rayse() error {
-	// 获取最新配置
-	latestCfg := config.Get()
-	
-	extractor := extractor.NewV2rayseExtractor()
-	links := extractor.Run(latestCfg.Extractor.V2rayseURLs)
-	s.importLinks(links, "")
-	return nil
+	_, err := s.ExtractFromSources(context.Background())
+	return err
 }
 
 func (s *ExtractorService) ExtractFromGitHub() error {
-	// 获取最新配置
-	latestCfg := config.Get()
-	
-	extractor := extractor.NewGitHubExtractor()
-	links := extractor.Run(latestCfg.Extractor.GitHubURLs)
-	s.importLinks(links, "GitHub")
-	return nil
+	_, err := s.ExtractFromSources(context.Background())
+	return err
 }
 
 func (s *ExtractorService) ImportFromURL(url string) (int, int, error) {
 	contentParser := extractor.NewContentParser()
 
-	client := &http.Client{}
-	resp, err := client.Get(url)
+	content, err := s.fetcher.Fetch(context.Background(), url)
 	if err != nil {
 		return 0, 0, fmt.Errorf("获取URL内容失败: %w", err)
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, 0, fmt.Errorf("读取响应内容失败: %w", err)
-	}
-
-	links := contentParser.ParseContent(string(body))
-	imported, existing := s.importLinks(links, "")
-	return imported, existing, nil
+	links := contentParser.ParseContent(content)
+	result := s.importLinks(links, "")
+	return result.Imported, result.Existing, nil
 }
 
 func (s *ExtractorService) ImportFromText(text string) (int, int, error) {
 	contentParser := extractor.NewContentParser()
 	links := contentParser.ParseContent(text)
-	imported, existing := s.importLinks(links, "")
-	return imported, existing, nil
+	result := s.importLinks(links, "")
+	return result.Imported, result.Existing, nil
 }

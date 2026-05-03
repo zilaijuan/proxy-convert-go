@@ -1,0 +1,29 @@
+server:
+  addr: "0.0.0.0:5000"
+
+database:
+  path: "./database/links.db"
+
+extractor:
+  v2rayse:
+    email: "xxx"
+    password: "xxx"
+  v2rayseURLs:
+    - "https://test.v2rayse.com/live-node"
+    - "https://test.v2rayse.com/free-node"
+  githubURLs:
+    - "https://cdn.jsdmirror.com/gh/arshiacomplus/v2rayExtractor/mix/sub.html"
+
+    # 可以添加更多 URL
+verifier:
+  timeout: 20s
+  chunkSize: 10
+  testSpeed: false
+  downloadSize: 250000
+  testURL: "https://www.google.com/generate_204"
+  # mihomoPath: "./bin/mihomo-linux-arm64"
+  mihomoPath: "./bin/mihomo-windows-amd64-v3-go125.exe"
+  
+
+scheduler:
+  interval: 1h
