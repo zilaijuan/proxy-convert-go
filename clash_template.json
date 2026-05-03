@@ -58,136 +58,6 @@
             "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
             "udp": true,
             "tfo": true
-        },
-        {
-            "name": "HK02",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43562,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "HK03",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43563,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "HK04",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 58899,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "HK05",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43565,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "SG01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43566,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "SG02",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43567,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "US01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43568,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "US02",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43577,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "TW01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43570,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "EN01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43571,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "IN01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 51927,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "AU01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43573,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
-        },
-        {
-            "name": "JP01",
-            "type": "ss",
-            "server": "62765eb680fa.kozow.com",
-            "port": 43679,
-            "cipher": "aes-256-gcm",
-            "password": "80debcf5-1995-4438-909b-e553fa2adc2b",
-            "udp": true,
-            "tfo": true
         }
     ],
     "proxy-groups": [
@@ -203,7 +73,7 @@
             "name": "🌏 Auto",
             "type": "url-test",
             "url": "http://www.gstatic.com/generate_204",
-            "interval": 180,
+            "interval": 60,
             "proxies": [
                 
             ]

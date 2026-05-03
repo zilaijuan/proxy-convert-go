@@ -4,17 +4,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
 
 type Proxy struct {
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Server   string                 `json:"server"`
-	Port     int                    `json:"port"`
-	UDP      bool                   `json:"udp"`
-	Extra    map[string]interface{} `json:"-"`
+	Name   string                 `json:"name"`
+	Type   string                 `json:"type"`
+	Server string                 `json:"server"`
+	Port   int                    `json:"port"`
+	UDP    bool                   `json:"udp"`
+	Extra  map[string]interface{} `json:"-"`
 }
 
 func ParseSS(link string) (*Proxy, error) {
@@ -27,14 +28,14 @@ func ParseSS(link string) (*Proxy, error) {
 	body = parts[0]
 	name := ""
 	if len(parts) > 1 {
-		name = parts[1]
+		name = unescape(parts[1])
 	}
 
 	var method, password, host, port string
 
 	if strings.Contains(body, "@") {
 		creds, server := splitAt(body, "@")
-		decoded, err := base64.StdEncoding.DecodeString(creds)
+		decoded, err := decodeBase64String(creds)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode credentials: %w", err)
 		}
@@ -44,14 +45,12 @@ func ParseSS(link string) (*Proxy, error) {
 		}
 		method = credsParts[0]
 		password = credsParts[1]
-		serverParts := strings.SplitN(server, ":", 2)
-		if len(serverParts) != 2 {
-			return nil, fmt.Errorf("invalid server format")
+		host, port, err = parseServerPort(server)
+		if err != nil {
+			return nil, err
 		}
-		host = serverParts[0]
-		port = strings.TrimSuffix(serverParts[1], "?")
 	} else {
-		decoded, err := base64.StdEncoding.DecodeString(body)
+		decoded, err := decodeBase64String(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode body: %w", err)
 		}
@@ -65,13 +64,13 @@ func ParseSS(link string) (*Proxy, error) {
 			return nil, fmt.Errorf("invalid credentials format")
 		}
 		password = credsParts[0]
-		serverParts := strings.SplitN(credsParts[1], ":", 2)
-		if len(serverParts) != 2 {
-			return nil, fmt.Errorf("invalid server format")
+		host, port, err = parseServerPort(credsParts[1])
+		if err != nil {
+			return nil, err
 		}
-		host = serverParts[0]
-		port = serverParts[1]
 	}
+
+	method = normalizeSSCipher(method)
 
 	portInt := 8388
 	if p, err := parsePort(port); err == nil {
@@ -91,18 +90,24 @@ func ParseSS(link string) (*Proxy, error) {
 	}, nil
 }
 
+func normalizeSSCipher(cipher string) string {
+	switch strings.ToLower(strings.TrimSpace(cipher)) {
+	case "chacha20-poly1305":
+		return "chacha20-ietf-poly1305"
+	case "xchacha20-poly1305":
+		return "xchacha20-ietf-poly1305"
+	default:
+		return cipher
+	}
+}
+
 func ParseVMess(link string) (*Proxy, error) {
 	if !strings.HasPrefix(link, "vmess://") {
 		return nil, fmt.Errorf("invalid vmess link")
 	}
 
-	base64Str := link[8:]
-	missingPadding := len(base64Str) % 4
-	if missingPadding != 0 {
-		base64Str += strings.Repeat("=", 4-missingPadding)
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(base64Str)
+	base64Str := trimEncodedPayload(link[8:])
+	decoded, err := decodeBase64String(base64Str)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode vmess link: %w", err)
 	}
@@ -124,10 +129,10 @@ func ParseVMess(link string) (*Proxy, error) {
 		Port:   port,
 		UDP:    true,
 		Extra: map[string]interface{}{
-			"uuid":     getString(data, "id", ""),
-			"alterId":  getInt(data, "aid", 0),
-			"cipher":   getString(data, "scy", "auto"),
-			"network":  getString(data, "net", "tcp"),
+			"uuid":    getString(data, "id", ""),
+			"alterId": getInt(data, "aid", 0),
+			"cipher":  getString(data, "scy", "auto"),
+			"network": getString(data, "net", "tcp"),
 		},
 	}
 
@@ -151,27 +156,46 @@ func ParseVLESS(link string) (*Proxy, error) {
 		return nil, fmt.Errorf("invalid vless link")
 	}
 
-	u, err := url.Parse(link)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse vless url: %w", err)
+	body := link[len("vless://"):]
+	parts := strings.SplitN(body, "#", 2)
+	body = parts[0]
+	name := ""
+	if len(parts) > 1 {
+		name = unescape(parts[1])
 	}
 
-	port := 443
-	if u.Port() != "" {
-		if p, err := parsePort(u.Port()); err == nil {
-			port = p
+	serverPart := body
+	query := url.Values{}
+	if idx := strings.Index(body, "?"); idx >= 0 {
+		serverPart = body[:idx]
+		if parsedQuery, err := url.ParseQuery(body[idx+1:]); err == nil {
+			query = parsedQuery
 		}
 	}
 
-	query := u.Query()
+	user, server := splitAtLast(serverPart, "@")
+	if server == "" {
+		return nil, fmt.Errorf("invalid vless server format")
+	}
+
+	host, portStr, err := parseServerPort(server)
+	if err != nil {
+		return nil, err
+	}
+
+	port := 443
+	if p, err := parsePort(portStr); err == nil {
+		port = p
+	}
+
 	proxy := &Proxy{
-		Name:   u.Fragment,
+		Name:   name,
 		Type:   "vless",
-		Server: u.Hostname(),
+		Server: host,
 		Port:   port,
 		UDP:    true,
 		Extra: map[string]interface{}{
-			"uuid":    u.User.Username(),
+			"uuid":    unescape(user),
 			"network": getStringFromQuery(query, "type", "tcp"),
 		},
 	}
@@ -192,7 +216,7 @@ func ParseVLESS(link string) (*Proxy, error) {
 	if network, ok := proxy.Extra["network"].(string); ok && network == "ws" {
 		proxy.Extra["ws-opts"] = map[string]interface{}{
 			"path":    unescape(getStringFromQuery(query, "path", "/")),
-			"headers": map[string]string{"Host": getStringFromQuery(query, "host", u.Hostname())},
+			"headers": map[string]string{"Host": getStringFromQuery(query, "host", host)},
 		}
 	}
 
@@ -204,27 +228,46 @@ func ParseTrojan(link string) (*Proxy, error) {
 		return nil, fmt.Errorf("invalid trojan link")
 	}
 
-	u, err := url.Parse(link)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse trojan url: %w", err)
+	body := link[len("trojan://"):]
+	parts := strings.SplitN(body, "#", 2)
+	body = parts[0]
+	name := ""
+	if len(parts) > 1 {
+		name = unescape(parts[1])
 	}
 
-	port := 443
-	if u.Port() != "" {
-		if p, err := parsePort(u.Port()); err == nil {
-			port = p
+	serverPart := body
+	query := url.Values{}
+	if idx := strings.Index(body, "?"); idx >= 0 {
+		serverPart = body[:idx]
+		if parsedQuery, err := url.ParseQuery(body[idx+1:]); err == nil {
+			query = parsedQuery
 		}
 	}
 
-	query := u.Query()
+	password, server := splitAtLast(serverPart, "@")
+	if server == "" {
+		return nil, fmt.Errorf("invalid trojan server format")
+	}
+
+	host, portStr, err := parseServerPort(server)
+	if err != nil {
+		return nil, err
+	}
+
+	port := 443
+	if p, err := parsePort(portStr); err == nil {
+		port = p
+	}
+
 	proxy := &Proxy{
-		Name:   u.Fragment,
+		Name:   name,
 		Type:   "trojan",
-		Server: u.Hostname(),
+		Server: host,
 		Port:   port,
 		UDP:    true,
 		Extra: map[string]interface{}{
-			"password": u.User.Username(),
+			"password": unescape(password),
 			"sni":      query.Get("sni"),
 		},
 	}
@@ -301,43 +344,75 @@ func ParseAnyTLS(link string) (*Proxy, error) {
 		return nil, fmt.Errorf("invalid anytls link")
 	}
 
-	u, err := url.Parse(link)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse anytls url: %w", err)
+	body := link[9:]
+	parts := strings.SplitN(body, "#", 2)
+	body = parts[0]
+	name := ""
+	if len(parts) > 1 {
+		name = unescape(parts[1])
 	}
 
-	port := 443
-	if u.Port() != "" {
-		if p, err := parsePort(u.Port()); err == nil {
-			port = p
+	serverPart := body
+	query := url.Values{}
+	if idx := strings.Index(body, "?"); idx >= 0 {
+		serverPart = body[:idx]
+		if parsedQuery, err := url.ParseQuery(body[idx+1:]); err == nil {
+			query = parsedQuery
 		}
 	}
 
-	query := u.Query()
-	proxy := &Proxy{
-		Name:   u.Fragment,
-		Type:   "anytls",
-		Server: u.Hostname(),
-		Port:   port,
-		UDP:    true,
-		Extra: map[string]interface{}{
-			"password": u.User.Username(),
-			"sni":      query.Get("sni"),
-			"alpn":     strings.Split(query.Get("alpn"), ","),
-		},
+	creds, server := splitAtLast(serverPart, "@")
+	if server == "" {
+		return nil, fmt.Errorf("invalid anytls server format")
 	}
 
-	proxy.Extra["skip-cert-verify"] = true
+	password := unescape(creds)
+	extra := map[string]interface{}{
+		"password": password,
+	}
 
-	return proxy, nil
+	if decoded, err := decodeBase64String(creds); err == nil {
+		credsParts := strings.SplitN(string(decoded), ":", 2)
+		if len(credsParts) == 2 {
+			extra["cipher"] = credsParts[0]
+			extra["password"] = credsParts[1]
+		}
+	}
+
+	if sni := query.Get("sni"); sni != "" {
+		extra["sni"] = sni
+	}
+	if fp := query.Get("fp"); fp != "" {
+		extra["fingerprint"] = fp
+	}
+	if alpn := query.Get("alpn"); alpn != "" {
+		extra["alpn"] = strings.Split(alpn, ",")
+	}
+	if query.Get("allowInsecure") == "1" || query.Get("insecure") == "1" {
+		extra["skip-cert-verify"] = true
+	}
+
+	host, portStr, err := parseServerPort(server)
+	if err != nil {
+		return nil, err
+	}
+
+	portInt := 443
+	if p, err := parsePort(portStr); err == nil {
+		portInt = p
+	}
+
+	return &Proxy{
+		Name:   name,
+		Type:   "anytls",
+		Server: host,
+		Port:   portInt,
+		UDP:    true,
+		Extra:  extra,
+	}, nil
 }
 
 func ParseLink(link string) (*Proxy, error) {
-	link = strings.TrimSpace(link)
-	if link == "" {
-		return nil, fmt.Errorf("empty link")
-	}
-
 	if strings.HasPrefix(link, "ss://") {
 		return ParseSS(link)
 	} else if strings.HasPrefix(link, "vmess://") {
@@ -362,23 +437,74 @@ func GetNodeFingerprint(p *Proxy) string {
 		return ""
 	}
 
+	// 标准化服务器地址（转小写）
+	server := strings.ToLower(p.Server)
+
 	auth := ""
+	cipher := ""
+	network := ""
+	tls := ""
+	servername := ""
+
 	switch p.Type {
-	case "ss", "trojan", "anytls":
+	case "ss", "anytls":
 		if pw, ok := p.Extra["password"].(string); ok {
 			auth = pw
 		}
-	case "vmess", "vless":
+		if c, ok := p.Extra["cipher"].(string); ok {
+			cipher = c
+		}
+	case "trojan":
+		if pw, ok := p.Extra["password"].(string); ok {
+			auth = pw
+		}
+		if sni, ok := p.Extra["sni"].(string); ok {
+			servername = sni
+		}
+		if net, ok := p.Extra["network"].(string); ok {
+			network = net
+		}
+	case "vmess":
 		if uuid, ok := p.Extra["uuid"].(string); ok {
 			auth = uuid
+		}
+		if c, ok := p.Extra["cipher"].(string); ok {
+			cipher = c
+		}
+		if net, ok := p.Extra["network"].(string); ok {
+			network = net
+		}
+		if t, ok := p.Extra["tls"].(bool); ok && t {
+			tls = "tls"
+		}
+		if sni, ok := p.Extra["servername"].(string); ok {
+			servername = sni
+		}
+	case "vless":
+		if uuid, ok := p.Extra["uuid"].(string); ok {
+			auth = uuid
+		}
+		if net, ok := p.Extra["network"].(string); ok {
+			network = net
+		}
+		if t, ok := p.Extra["tls"].(bool); ok && t {
+			tls = "tls"
+		}
+		if sni, ok := p.Extra["servername"].(string); ok {
+			servername = sni
 		}
 	case "hysteria", "hysteria2":
 		if authStr, ok := p.Extra["auth_str"].(string); ok {
 			auth = authStr
 		}
+		if alpn, ok := p.Extra["alpn"].([]string); ok && len(alpn) > 0 {
+			cipher = strings.Join(alpn, ",")
+		}
 	}
 
-	return fmt.Sprintf("%s,%s,%d,%s", p.Type, p.Server, p.Port, auth)
+	// 构建指纹，包含关键参数
+	return fmt.Sprintf("%s,%s,%d,%s,%s,%s,%s,%s",
+		p.Type, server, p.Port, auth, cipher, network, tls, servername)
 }
 
 func splitAt(s, sep string) (string, string) {
@@ -387,6 +513,60 @@ func splitAt(s, sep string) (string, string) {
 		return s, ""
 	}
 	return s[:idx], s[idx+len(sep):]
+}
+
+func splitAtLast(s, sep string) (string, string) {
+	idx := strings.LastIndex(s, sep)
+	if idx == -1 {
+		return s, ""
+	}
+	return s[:idx], s[idx+len(sep):]
+}
+
+func trimEncodedPayload(s string) string {
+	s = strings.TrimSpace(s)
+	for _, sep := range []string{"#", "@_@", "?"} {
+		if idx := strings.Index(s, sep); idx >= 0 {
+			s = s[:idx]
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func decodeBase64String(s string) ([]byte, error) {
+	s = trimEncodedPayload(s)
+	decoded, err := url.PathUnescape(s)
+	if err == nil {
+		s = decoded
+	}
+
+	s = strings.ReplaceAll(s, "-", "+")
+	s = strings.ReplaceAll(s, "_", "/")
+
+	if missingPadding := len(s) % 4; missingPadding != 0 {
+		s += strings.Repeat("=", 4-missingPadding)
+	}
+
+	return base64.StdEncoding.DecodeString(s)
+}
+
+func parseServerPort(server string) (string, string, error) {
+	server = strings.TrimSpace(server)
+	server = strings.TrimSuffix(server, "/")
+	if idx := strings.Index(server, "?"); idx >= 0 {
+		server = server[:idx]
+	}
+
+	if host, port, err := net.SplitHostPort(server); err == nil {
+		return host, port, nil
+	}
+
+	serverParts := strings.SplitN(server, ":", 2)
+	if len(serverParts) != 2 {
+		return "", "", fmt.Errorf("invalid server format")
+	}
+
+	return serverParts[0], serverParts[1], nil
 }
 
 func parsePort(s string) (int, error) {
@@ -410,13 +590,16 @@ func getInt(m map[string]interface{}, key string, defaultValue int) int {
 }
 
 func getStringFromQuery(query url.Values, key, defaultValue string) string {
-	if v := query.Get(key); v != "" {
-		return v
+	if val := query.Get(key); val != "" {
+		return val
 	}
 	return defaultValue
 }
 
 func unescape(s string) string {
+	if s == "" {
+		return ""
+	}
 	decoded, err := url.QueryUnescape(s)
 	if err != nil {
 		return s

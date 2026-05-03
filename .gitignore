@@ -6,7 +6,9 @@ bin/
 *.dylib
 *.test
 *.out
-database/
+/database
 *.db
 *.log
 .DS_Store
+.gocache
+vendor

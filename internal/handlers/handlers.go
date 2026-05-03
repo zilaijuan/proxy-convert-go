@@ -54,7 +54,8 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 			return
 		}
 
-		if err := extractorService.ImportFromURL(req.URL); err != nil {
+		imported, existing, err := extractorService.ImportFromURL(req.URL)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, Response{
 				Success: false,
 				Message: err.Error(),
@@ -62,9 +63,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 			return
 		}
 
+		totalLinks := imported + existing
 		c.JSON(http.StatusOK, Response{
 			Success: true,
 			Message: "Links imported successfully",
+			Data: map[string]int{
+				"total_links": totalLinks,
+				"imported":    imported,
+				"existing":    existing,
+			},
 		})
 	})
 
@@ -86,7 +93,8 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 			return
 		}
 
-		if err := extractorService.ImportFromText(req.Links); err != nil {
+		imported, existing, err := extractorService.ImportFromText(req.Links)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, Response{
 				Success: false,
 				Message: err.Error(),
@@ -94,9 +102,15 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 			return
 		}
 
+		totalLinks := imported + existing
 		c.JSON(http.StatusOK, Response{
 			Success: true,
 			Message: "Links imported successfully",
+			Data: map[string]int{
+				"total_links": totalLinks,
+				"imported":    imported,
+				"existing":    existing,
+			},
 		})
 	})
 
@@ -319,6 +333,9 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 			if err := c.BindQuery(&s); err == nil {
 				statuses = []int{s}
 			}
+		} else {
+			// 缺省值为 1
+			statuses = []int{1}
 		}
 
 		yamlData, err := clashService.ExportClashConfigYAML(statuses)
@@ -332,5 +349,37 @@ func RegisterRoutes(router *gin.Engine, linkService *service.LinkService, verifi
 
 		c.Header("Content-Type", "text/yaml; charset=utf-8")
 		c.Data(http.StatusOK, "text/yaml", yamlData)
+	})
+
+	router.GET("/api/v2ray", func(c *gin.Context) {
+		status := c.Query("status")
+		var statuses []int
+		if status != "" {
+			s := 0
+			if err := c.BindQuery(&s); err == nil {
+				statuses = []int{s}
+			}
+		} else {
+			// 缺省值为 1
+			statuses = []int{1}
+		}
+
+		links, err := linkService.GetAllLinks(statuses, 0, 0)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, Response{
+				Success: false,
+				Message: err.Error(),
+			})
+			return
+		}
+
+		// 构建响应内容，每一个 link 一行
+		var responseContent string
+		for _, link := range links {
+			responseContent += link.Link + "\n"
+		}
+
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		c.String(http.StatusOK, responseContent)
 	})
 }

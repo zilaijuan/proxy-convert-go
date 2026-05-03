@@ -5,12 +5,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: proxy-convert-go:latest
     container_name: proxy-convert-go
     ports:
       - "5000:5000"
     volumes:
       - ./database:/root/database
       - ./templates:/root/templates
+      - ./config.yaml:/root/config.yaml
     environment:
       - SERVER_ADDR=0.0.0.0:5000
       - DATABASE_PATH=/root/database/links.db

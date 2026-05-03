@@ -57,7 +57,8 @@ func (e *GitHubExtractor) parseContent(content string) []string {
 func (e *GitHubExtractor) Run(urls []string) []string {
 	if len(urls) == 0 {
 		urls = []string{
-			"https://github.com/arshiacomplus/v2rayExtractor/blob/main/mix/sub.html",
+			// "https://github.com/arshiacomplus/v2rayExtractor/blob/main/mix/sub.html",
+			"https://raw.githubusercontent.com/arshiacomplus/v2rayExtractor/refs/heads/main/mix/sub.html",
 		}
 	}
 
@@ -95,7 +96,7 @@ func (e *GitHubExtractor) deduplicate(links []string) []string {
 }
 
 type V2rayseExtractor struct {
-	timeout        time.Duration
+	timeout       time.Duration
 	base64Strings []string
 }
 
@@ -232,28 +233,28 @@ func (e *V2rayseExtractor) processURL(url string) []string {
 
 func (e *V2rayseExtractor) tryAlternativeExtraction(htmlContent string) []string {
 	log.Println("尝试从HTML中直接查找base64编码的字符串...")
-	
+
 	var allLines []string
-	
+
 	base64Pattern := regexp.MustCompile(`[A-Za-z0-9+/]{30,}={0,2}`)
 	matches := base64Pattern.FindAllString(htmlContent, -1)
-	
+
 	log.Printf("找到 %d 个可能的base64字符串", len(matches))
-	
+
 	for _, match := range matches {
 		if e.isBase64(match) {
 			decoded, err := base64.StdEncoding.DecodeString(match)
 			if err != nil {
 				continue
 			}
-			
+
 			decodedStr := string(decoded)
-			
-			if strings.Contains(decodedStr, "ss://") || 
-			   strings.Contains(decodedStr, "vmess://") || 
-			   strings.Contains(decodedStr, "vless://") || 
-			   strings.Contains(decodedStr, "trojan://") {
-				
+
+			if strings.Contains(decodedStr, "ss://") ||
+				strings.Contains(decodedStr, "vmess://") ||
+				strings.Contains(decodedStr, "vless://") ||
+				strings.Contains(decodedStr, "trojan://") {
+
 				for _, line := range strings.Split(decodedStr, "\n") {
 					line = strings.TrimSpace(line)
 					if line != "" {
@@ -263,7 +264,7 @@ func (e *V2rayseExtractor) tryAlternativeExtraction(htmlContent string) []string
 			}
 		}
 	}
-	
+
 	log.Printf("备用方法提取到 %d 行", len(allLines))
 	return allLines
 }

@@ -119,9 +119,20 @@
                     <button id="copyBtn" style="width: auto; padding: 0 20px;">复制</button>
                 </div>
                 <small style="display: block; margin-top: 5px; color: #666;">使用此链接在 Clash 客户端中添加订阅</small>
+                <div style="margin-top: 10px;">
+                    <button id="showYamlBtn">显示 Clash 订阅内容</button>
+                </div>
             </div>
-            <div style="margin-top: 15px;">
-                <button id="showYamlBtn">显示订阅内容</button>
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="v2raySubscribeUrl">V2rayN 订阅链接:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="v2raySubscribeUrl" readonly style="flex: 1;">
+                    <button id="copyV2rayBtn" style="width: auto; padding: 0 20px;">复制</button>
+                </div>
+                <small style="display: block; margin-top: 5px; color: #666;">使用此链接在 V2rayN 客户端中添加订阅</small>
+                <div style="margin-top: 10px;">
+                    <button id="showV2rayBtn">显示 V2rayN 订阅内容</button>
+                </div>
             </div>
         </div>
         
@@ -279,8 +290,10 @@
 
         function setSubscribeUrl() {
             const currentUrl = window.location.origin;
-            const subscribeUrl = `${currentUrl}/api/clash`;
-            document.getElementById('subscribeUrl').value = subscribeUrl;
+            const clashSubscribeUrl = `${currentUrl}/api/clash`;
+            const v2raySubscribeUrl = `${currentUrl}/api/v2ray`;
+            document.getElementById('subscribeUrl').value = clashSubscribeUrl;
+            document.getElementById('v2raySubscribeUrl').value = v2raySubscribeUrl;
         }
 
         document.getElementById('copyBtn').addEventListener('click', function() {
@@ -300,6 +313,29 @@
                 setTimeout(function() {
                     copyBtn.textContent = originalText;
                     copyBtn.style.backgroundColor = '';
+                }, 2000);
+            } catch (err) {
+                console.error('复制失败:', err);
+            }
+        });
+
+        document.getElementById('copyV2rayBtn').addEventListener('click', function() {
+            const v2raySubscribeUrl = document.getElementById('v2raySubscribeUrl');
+            const copyV2rayBtn = document.getElementById('copyV2rayBtn');
+            
+            v2raySubscribeUrl.select();
+            v2raySubscribeUrl.setSelectionRange(0, 99999);
+            
+            try {
+                document.execCommand('copy');
+                
+                const originalText = copyV2rayBtn.textContent;
+                copyV2rayBtn.textContent = '已复制！';
+                copyV2rayBtn.style.backgroundColor = '#4CAF50';
+                
+                setTimeout(function() {
+                    copyV2rayBtn.textContent = originalText;
+                    copyV2rayBtn.style.backgroundColor = '';
                 }, 2000);
             } catch (err) {
                 console.error('复制失败:', err);
@@ -351,6 +387,39 @@
             })
             .finally(() => {
                 showYamlBtn.disabled = false;
+            });
+        });
+
+        document.getElementById('showV2rayBtn').addEventListener('click', function() {
+            const showV2rayBtn = document.getElementById('showV2rayBtn');
+            const yamlModal = document.getElementById('yamlModal');
+            const yamlContent = document.getElementById('yamlContent');
+            
+            showV2rayBtn.disabled = true;
+            yamlContent.textContent = '正在加载订阅内容...';
+            yamlModal.style.display = 'block';
+            
+            const v2raySubscribeUrl = document.getElementById('v2raySubscribeUrl').value;
+            
+            fetch(v2raySubscribeUrl, {
+                method: 'GET'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.text();
+            })
+            .then(data => {
+                // 对 V2rayN 订阅内容进行简单的格式处理，保持原样显示
+                data = data.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                yamlContent.innerHTML = '<pre style="font-family: \'Courier New\', monospace;">' + data + '</pre>';
+            })
+            .catch(error => {
+                yamlContent.textContent = '加载失败: ' + error.message;
+            })
+            .finally(() => {
+                showV2rayBtn.disabled = false;
             });
         });
 
