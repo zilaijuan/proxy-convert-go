@@ -19,6 +19,7 @@ type DB struct {
 type Link struct {
 	ID          int       `json:"id"`
 	Tag         string    `json:"tag"`
+	Source      string    `json:"source"`
 	Link        string    `json:"link"`
 	Status      int       `json:"status"`
 	Fingerprint string    `json:"fingerprint"`
@@ -50,6 +51,7 @@ func initDB(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS links (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tag VARCHAR(100),
+			source VARCHAR(100),
 			link TEXT NOT NULL UNIQUE,
 			status INTEGER DEFAULT 0,
 			fingerprint TEXT NOT NULL UNIQUE,
@@ -83,6 +85,7 @@ func migrateDB(db *sql.DB) error {
 	defer rows.Close()
 
 	hasCountColumn := false
+	hasSourceColumn := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -95,7 +98,9 @@ func migrateDB(db *sql.DB) error {
 		}
 		if name == "count" {
 			hasCountColumn = true
-			break
+		}
+		if name == "source" {
+			hasSourceColumn = true
 		}
 	}
 
@@ -107,18 +112,30 @@ func migrateDB(db *sql.DB) error {
 		logger.Println("数据库迁移完成：已添加 count 字段")
 	}
 
+	if !hasSourceColumn {
+		_, err := db.Exec(`ALTER TABLE links ADD COLUMN source VARCHAR(100) DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("failed to add source column: %w", err)
+		}
+		logger.Println("数据库迁移完成：已添加 source 字段")
+	}
+
 	return nil
 }
 
 func (db *DB) AddLink(link string, status int, fingerprint, tag string) (int64, error) {
+	return db.AddLinkWithSource(link, status, fingerprint, tag, "")
+}
+
+func (db *DB) AddLinkWithSource(link string, status int, fingerprint, tag, source string) (int64, error) {
 	if fingerprint == "" {
 		fingerprint = link
 	}
 
 	result, err := db.Exec(
-		`INSERT INTO links (tag, link, status, fingerprint, count, create_time, update_time) 
-		 VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		tag, link, status, fingerprint,
+		`INSERT INTO links (tag, source, link, status, fingerprint, count, create_time, update_time) 
+		 VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		tag, source, link, status, fingerprint,
 	)
 	if err != nil {
 		return 0, err
@@ -129,8 +146,8 @@ func (db *DB) AddLink(link string, status int, fingerprint, tag string) (int64, 
 
 func (db *DB) GetLink(id int) (*Link, error) {
 	var link Link
-	err := db.QueryRow(`SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links WHERE id = ?`, id).Scan(
-		&link.ID, &link.Tag, &link.Link, &link.Status, &link.Fingerprint,
+	err := db.QueryRow(`SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links WHERE id = ?`, id).Scan(
+		&link.ID, &link.Tag, &link.Source, &link.Link, &link.Status, &link.Fingerprint,
 		&link.Count, &link.CreateTime, &link.UpdateTime,
 	)
 	if err != nil {
@@ -141,8 +158,8 @@ func (db *DB) GetLink(id int) (*Link, error) {
 
 func (db *DB) GetLinkByLink(link string) (*Link, error) {
 	var l Link
-	err := db.QueryRow(`SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links WHERE link = ?`, link).Scan(
-		&l.ID, &l.Tag, &l.Link, &l.Status, &l.Fingerprint,
+	err := db.QueryRow(`SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links WHERE link = ?`, link).Scan(
+		&l.ID, &l.Tag, &l.Source, &l.Link, &l.Status, &l.Fingerprint,
 		&l.Count, &l.CreateTime, &l.UpdateTime,
 	)
 	if err != nil {
@@ -157,12 +174,12 @@ func (db *DB) GetAllLinks(statuses []int, limit, offset int) ([]Link, error) {
 
 	if limit <= 0 {
 		if len(statuses) == 0 {
-			query = `SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links ORDER BY id DESC`
+			query = `SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links ORDER BY id DESC`
 			args = []interface{}{}
 		} else {
 			placeholders := strings.Repeat("?,", len(statuses))
 			placeholders = placeholders[:len(placeholders)-1]
-			query = fmt.Sprintf(`SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links WHERE status IN (%s) ORDER BY id DESC`, placeholders)
+			query = fmt.Sprintf(`SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links WHERE status IN (%s) ORDER BY id DESC`, placeholders)
 			args = make([]interface{}, len(statuses))
 			for i, s := range statuses {
 				args[i] = s
@@ -170,12 +187,12 @@ func (db *DB) GetAllLinks(statuses []int, limit, offset int) ([]Link, error) {
 		}
 	} else {
 		if len(statuses) == 0 {
-			query = `SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links ORDER BY id DESC LIMIT ? OFFSET ?`
+			query = `SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links ORDER BY id DESC LIMIT ? OFFSET ?`
 			args = []interface{}{limit, offset}
 		} else {
 			placeholders := strings.Repeat("?,", len(statuses))
 			placeholders = placeholders[:len(placeholders)-1]
-			query = fmt.Sprintf(`SELECT id, tag, link, status, fingerprint, count, create_time, update_time FROM links WHERE status IN (%s) ORDER BY id DESC LIMIT ? OFFSET ?`, placeholders)
+			query = fmt.Sprintf(`SELECT id, tag, source, link, status, fingerprint, count, create_time, update_time FROM links WHERE status IN (%s) ORDER BY id DESC LIMIT ? OFFSET ?`, placeholders)
 			args = make([]interface{}, len(statuses)+2)
 			for i, s := range statuses {
 				args[i] = s
@@ -195,7 +212,7 @@ func (db *DB) GetAllLinks(statuses []int, limit, offset int) ([]Link, error) {
 	for rows.Next() {
 		var link Link
 		err := rows.Scan(
-			&link.ID, &link.Tag, &link.Link, &link.Status, &link.Fingerprint,
+			&link.ID, &link.Tag, &link.Source, &link.Link, &link.Status, &link.Fingerprint,
 			&link.Count, &link.CreateTime, &link.UpdateTime,
 		)
 		if err != nil {

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -27,6 +29,7 @@ const (
 	v2rayseNodesAPIURL   = v2rayseBaseURL + "/api/tools/free-node-share/nodes"
 	v2rayseCheckInAPIURL = v2rayseBaseURL + "/api/account/points/check-in"
 	v2rayseConvertAPIURL = v2rayseBaseURL + "/api/tools/free-node-share/convert"
+	v2rayseStatePath     = "database/source_state/v2rayse.json"
 )
 
 var v2rayseCredentialsProvider func() (string, string)
@@ -37,6 +40,12 @@ var (
 	v2rayseLastSuccessfulCount int
 	v2rayseLastCheckInDate     string
 )
+
+type v2rayseState struct {
+	LastSuccessfulDate  string `json:"last_successful_date"`
+	LastSuccessfulCount int    `json:"last_successful_count"`
+	LastCheckInDate     string `json:"last_check_in_date"`
+}
 
 type V2rayseSource struct{}
 
@@ -94,27 +103,102 @@ func (s *V2rayseSource) Extract(ctx context.Context, req extractor.SourceRequest
 
 func v2rayseAlreadyExtractedToday(today string) (bool, int) {
 	v2rayseDailyStateMu.RLock()
-	defer v2rayseDailyStateMu.RUnlock()
-	return v2rayseLastSuccessfulDate == today, v2rayseLastSuccessfulCount
+	if v2rayseLastSuccessfulDate == today {
+		count := v2rayseLastSuccessfulCount
+		v2rayseDailyStateMu.RUnlock()
+		return true, count
+	}
+	v2rayseDailyStateMu.RUnlock()
+
+	state := loadV2rayseState()
+	return state.LastSuccessfulDate == today, state.LastSuccessfulCount
 }
 
 func markV2rayseExtracted(today string, count int) {
 	v2rayseDailyStateMu.Lock()
-	defer v2rayseDailyStateMu.Unlock()
 	v2rayseLastSuccessfulDate = today
 	v2rayseLastSuccessfulCount = count
+	v2rayseDailyStateMu.Unlock()
+
+	state := loadV2rayseState()
+	state.LastSuccessfulDate = today
+	state.LastSuccessfulCount = count
+	saveV2rayseState(state)
 }
 
 func v2rayseAlreadyCheckedInToday(today string) bool {
 	v2rayseDailyStateMu.RLock()
-	defer v2rayseDailyStateMu.RUnlock()
-	return v2rayseLastCheckInDate == today
+	if v2rayseLastCheckInDate == today {
+		v2rayseDailyStateMu.RUnlock()
+		return true
+	}
+	v2rayseDailyStateMu.RUnlock()
+
+	state := loadV2rayseState()
+	return state.LastCheckInDate == today
 }
 
 func markV2rayseCheckedIn(today string) {
 	v2rayseDailyStateMu.Lock()
-	defer v2rayseDailyStateMu.Unlock()
 	v2rayseLastCheckInDate = today
+	v2rayseDailyStateMu.Unlock()
+
+	state := loadV2rayseState()
+	state.LastCheckInDate = today
+	saveV2rayseState(state)
+}
+
+func loadV2rayseState() v2rayseState {
+	v2rayseDailyStateMu.Lock()
+	defer v2rayseDailyStateMu.Unlock()
+
+	data, err := os.ReadFile(v2rayseStatePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Printf("[extractor:v2rayse] load state failed: %v", err)
+		}
+		return v2rayseState{
+			LastSuccessfulDate:  v2rayseLastSuccessfulDate,
+			LastSuccessfulCount: v2rayseLastSuccessfulCount,
+			LastCheckInDate:     v2rayseLastCheckInDate,
+		}
+	}
+
+	var state v2rayseState
+	if err := json.Unmarshal(data, &state); err != nil {
+		logger.Printf("[extractor:v2rayse] parse state failed: %v", err)
+		return v2rayseState{}
+	}
+
+	v2rayseLastSuccessfulDate = state.LastSuccessfulDate
+	v2rayseLastSuccessfulCount = state.LastSuccessfulCount
+	v2rayseLastCheckInDate = state.LastCheckInDate
+	return state
+}
+
+func saveV2rayseState(state v2rayseState) {
+	v2rayseDailyStateMu.Lock()
+	defer v2rayseDailyStateMu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(v2rayseStatePath), 0755); err != nil {
+		logger.Printf("[extractor:v2rayse] create state dir failed: %v", err)
+		return
+	}
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		logger.Printf("[extractor:v2rayse] encode state failed: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(v2rayseStatePath, data, 0644); err != nil {
+		logger.Printf("[extractor:v2rayse] save state failed: %v", err)
+		return
+	}
+
+	v2rayseLastSuccessfulDate = state.LastSuccessfulDate
+	v2rayseLastSuccessfulCount = state.LastSuccessfulCount
+	v2rayseLastCheckInDate = state.LastCheckInDate
 }
 
 func (s *V2rayseSource) extractAuthenticated(ctx context.Context) ([]string, bool) {

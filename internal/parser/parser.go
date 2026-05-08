@@ -106,7 +106,14 @@ func ParseVMess(link string) (*Proxy, error) {
 		return nil, fmt.Errorf("invalid vmess link")
 	}
 
-	base64Str := trimEncodedPayload(link[8:])
+	body := strings.TrimSpace(link[len("vmess://"):])
+	if strings.Contains(body, "@") {
+		if proxy, err := parseVMessURI(link); err == nil {
+			return proxy, nil
+		}
+	}
+
+	base64Str := trimEncodedPayload(body)
 	decoded, err := decodeBase64String(base64Str)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode vmess link: %w", err)
@@ -145,6 +152,68 @@ func ParseVMess(link string) (*Proxy, error) {
 		proxy.Extra["ws-opts"] = map[string]interface{}{
 			"path":    getString(data, "path", "/"),
 			"headers": map[string]string{"Host": getString(data, "host", "")},
+		}
+	}
+
+	return proxy, nil
+}
+
+func parseVMessURI(link string) (*Proxy, error) {
+	body := link[len("vmess://"):]
+	parts := strings.SplitN(body, "#", 2)
+	body = parts[0]
+	name := ""
+	if len(parts) > 1 {
+		name = unescape(parts[1])
+	}
+
+	serverPart := body
+	query := url.Values{}
+	if idx := strings.Index(body, "?"); idx >= 0 {
+		serverPart = body[:idx]
+		if parsedQuery, err := url.ParseQuery(body[idx+1:]); err == nil {
+			query = parsedQuery
+		}
+	}
+
+	uuid, server := splitAtLast(serverPart, "@")
+	if server == "" {
+		return nil, fmt.Errorf("invalid vmess server format")
+	}
+
+	host, portStr, err := parseServerPort(server)
+	if err != nil {
+		return nil, err
+	}
+
+	port := 443
+	if p, err := parsePort(portStr); err == nil {
+		port = p
+	}
+
+	proxy := &Proxy{
+		Name:   name,
+		Type:   "vmess",
+		Server: host,
+		Port:   port,
+		UDP:    true,
+		Extra: map[string]interface{}{
+			"uuid":    unescape(uuid),
+			"alterId": getIntFromQuery(query, "alterId", getIntFromQuery(query, "aid", 0)),
+			"cipher":  getStringFromQuery(query, "encryption", getStringFromQuery(query, "security", "auto")),
+			"network": getStringFromQuery(query, "type", "tcp"),
+		},
+	}
+
+	if security := query.Get("security"); security == "tls" {
+		proxy.Extra["tls"] = true
+		proxy.Extra["servername"] = getStringFromQuery(query, "sni", getStringFromQuery(query, "host", host))
+	}
+
+	if network, ok := proxy.Extra["network"].(string); ok && network == "ws" {
+		proxy.Extra["ws-opts"] = map[string]interface{}{
+			"path":    unescape(getStringFromQuery(query, "path", "/")),
+			"headers": map[string]string{"Host": getStringFromQuery(query, "host", getStringFromQuery(query, "sni", host))},
 		}
 	}
 
@@ -592,6 +661,17 @@ func getInt(m map[string]interface{}, key string, defaultValue int) int {
 func getStringFromQuery(query url.Values, key, defaultValue string) string {
 	if val := query.Get(key); val != "" {
 		return val
+	}
+	return defaultValue
+}
+
+func getIntFromQuery(query url.Values, key string, defaultValue int) int {
+	value := query.Get(key)
+	if value == "" {
+		return defaultValue
+	}
+	if parsed, err := parsePort(value); err == nil {
+		return parsed
 	}
 	return defaultValue
 }

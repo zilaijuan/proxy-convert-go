@@ -35,6 +35,12 @@ func (f testFetcher) Fetch(ctx context.Context, url string) (string, error) {
 	return f.content, nil
 }
 
+type urlContentFetcher map[string]string
+
+func (f urlContentFetcher) Fetch(ctx context.Context, url string) (string, error) {
+	return f[url], nil
+}
+
 func TestRunnerUsesRegisteredSources(t *testing.T) {
 	RegisterSource(testSource{})
 
@@ -52,5 +58,36 @@ func TestRunnerUsesRegisteredSources(t *testing.T) {
 	}
 	if links[1] != "vmess://second" {
 		t.Fatalf("expected second link to be vmess://second, got %q", links[1])
+	}
+}
+
+func TestRunnerUsesURLProvider(t *testing.T) {
+	source := testSource{}
+	RegisterSource(source)
+
+	runner := NewRunnerWithURLProvider(urlContentFetcher{
+		"https://example.test/sub":         "ss://from-default",
+		"https://example.test/from-config": "ss://from-config",
+	}, func(requested Source) []string {
+		if requested.Type() != source.Type() {
+			return nil
+		}
+		return []string{"https://example.test/from-config"}
+	})
+
+	results := runner.Run(context.Background())
+	var found bool
+	for _, result := range results {
+		if result.SourceType != source.Type() {
+			continue
+		}
+		found = true
+		if len(result.Links) != 1 || result.Links[0] != "ss://from-config" {
+			t.Fatalf("expected configured url content to be parsed, got %#v", result.Links)
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected test source result")
 	}
 }

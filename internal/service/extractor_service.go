@@ -39,12 +39,36 @@ func NewExtractorService(db *database.DB, cfg *config.Config) *ExtractorService 
 	return &ExtractorService{
 		db:      db,
 		cfg:     cfg,
-		runner:  extractor.NewRunner(fetcher),
+		runner:  extractor.NewRunnerWithURLProvider(fetcher, sourceURLsFromConfig),
 		fetcher: fetcher,
 	}
 }
 
+func sourceURLsFromConfig(source extractor.Source) []string {
+	latestCfg := config.Get()
+	if latestCfg == nil {
+		return source.DefaultURLs()
+	}
+
+	switch source.Type() {
+	case "github":
+		if len(latestCfg.Extractor.GitHubURLs) > 0 {
+			return latestCfg.Extractor.GitHubURLs
+		}
+	case "v2rayse":
+		if len(latestCfg.Extractor.V2rayseURLs) > 0 {
+			return latestCfg.Extractor.V2rayseURLs
+		}
+	}
+
+	return source.DefaultURLs()
+}
+
 func (s *ExtractorService) importLinks(links []string, logPrefix string) ImportResult {
+	return s.importLinksWithSource(links, logPrefix, "")
+}
+
+func (s *ExtractorService) importLinksWithSource(links []string, logPrefix, source string) ImportResult {
 	result := ImportResult{}
 
 	for _, link := range links {
@@ -61,7 +85,7 @@ func (s *ExtractorService) importLinks(links []string, logPrefix string) ImportR
 			name = proxy.Name
 		}
 
-		id, err := s.db.AddLink(link, 0, fingerprint, name)
+		id, err := s.db.AddLinkWithSource(link, 0, fingerprint, name, source)
 		if err != nil {
 			result.Existing++
 			continue
@@ -87,7 +111,7 @@ func (s *ExtractorService) ExtractFromSources(ctx context.Context) (ImportResult
 			continue
 		}
 
-		importResult := s.importLinks(sourceResult.Links, sourceResult.SourceName)
+		importResult := s.importLinksWithSource(sourceResult.Links, sourceResult.SourceName, sourceResult.SourceType)
 		total.Imported += importResult.Imported
 		total.Existing += importResult.Existing
 		total.Failed += importResult.Failed

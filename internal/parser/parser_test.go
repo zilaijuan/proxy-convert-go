@@ -70,6 +70,44 @@ func TestParseVMessWithAppendedMetadata(t *testing.T) {
 	}
 }
 
+func TestParseVMessURIFormat(t *testing.T) {
+	link := "vmess://ae862e1d-3b8c-443a-027b-37c6c69ef43c@45.192.101.134:9527?encryption=auto&security=none&type=tcp#%E5%A1%9E%E8%88%8C%E5%B0%94/Seychelles"
+
+	proxy, err := ParseVMess(link)
+	if err != nil {
+		t.Fatalf("ParseVMess returned error: %v", err)
+	}
+
+	if proxy.Type != "vmess" {
+		t.Fatalf("unexpected type: %s", proxy.Type)
+	}
+	if proxy.Server != "45.192.101.134" {
+		t.Fatalf("unexpected server: %s", proxy.Server)
+	}
+	if proxy.Port != 9527 {
+		t.Fatalf("unexpected port: %d", proxy.Port)
+	}
+	if proxy.Name != "塞舌尔/Seychelles" {
+		t.Fatalf("unexpected name: %q", proxy.Name)
+	}
+
+	uuid, _ := proxy.Extra["uuid"].(string)
+	if uuid != "ae862e1d-3b8c-443a-027b-37c6c69ef43c" {
+		t.Fatalf("unexpected uuid: %q", uuid)
+	}
+	cipher, _ := proxy.Extra["cipher"].(string)
+	if cipher != "auto" {
+		t.Fatalf("unexpected cipher: %q", cipher)
+	}
+	network, _ := proxy.Extra["network"].(string)
+	if network != "tcp" {
+		t.Fatalf("unexpected network: %q", network)
+	}
+	if tls, _ := proxy.Extra["tls"].(bool); tls {
+		t.Fatalf("expected tls=false")
+	}
+}
+
 func TestParseTrojanWithRawPercentInPassword(t *testing.T) {
 	link := "trojan://M7v%w11Se*@tttyder.wsone.icu:443?allowInsecure=1&sni=tttyder.wsone.icu#%F0%9F%87%AE%F0%9F%87%B3_IN_%E5%8D%B0%E5%BA%A6"
 

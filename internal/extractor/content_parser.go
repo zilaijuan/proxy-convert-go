@@ -30,16 +30,28 @@ func (p *ContentParser) ParseContent(content string) []string {
 }
 
 func (p *ContentParser) tryDecodeBase64(text string) string {
-	if !p.isLikelyBase64(text) {
+	normalized := strings.Join(strings.Fields(text), "")
+	if beforeComment, _, found := strings.Cut(normalized, "#"); found {
+		normalized = beforeComment
+	}
+	if !p.isLikelyBase64(normalized) {
 		return ""
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(text)
-	if err != nil {
-		return ""
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	}
+	for _, encoding := range encodings {
+		decoded, err := encoding.DecodeString(normalized)
+		if err == nil {
+			return string(decoded)
+		}
 	}
 
-	return string(decoded)
+	return ""
 }
 
 func (p *ContentParser) isLikelyBase64(text string) bool {

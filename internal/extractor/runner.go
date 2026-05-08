@@ -8,14 +8,24 @@ import (
 )
 
 type Runner struct {
-	fetcher Fetcher
+	fetcher     Fetcher
+	urlProvider URLProvider
 }
 
+type URLProvider func(source Source) []string
+
 func NewRunner(fetcher Fetcher) *Runner {
+	return NewRunnerWithURLProvider(fetcher, nil)
+}
+
+func NewRunnerWithURLProvider(fetcher Fetcher, urlProvider URLProvider) *Runner {
 	if fetcher == nil {
 		fetcher = NewHTTPFetcher(10 * time.Second)
 	}
-	return &Runner{fetcher: fetcher}
+	return &Runner{
+		fetcher:     fetcher,
+		urlProvider: urlProvider,
+	}
 }
 
 func (r *Runner) Run(ctx context.Context) []Result {
@@ -26,7 +36,7 @@ func (r *Runner) Run(ctx context.Context) []Result {
 		logger.Printf("[extractor] start source: %s (%s)", source.Name(), source.Type())
 
 		links, err := source.Extract(ctx, SourceRequest{
-			URLs:    source.DefaultURLs(),
+			URLs:    r.urlsFor(source),
 			Fetcher: r.fetcher,
 		})
 		if err != nil {
@@ -49,6 +59,15 @@ func (r *Runner) Run(ctx context.Context) []Result {
 	}
 
 	return results
+}
+
+func (r *Runner) urlsFor(source Source) []string {
+	if r.urlProvider != nil {
+		if urls := r.urlProvider(source); len(urls) > 0 {
+			return urls
+		}
+	}
+	return source.DefaultURLs()
 }
 
 func (r *Runner) RunAll(ctx context.Context) []string {
